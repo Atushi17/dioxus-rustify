@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 use models::ComponentNode;
 use renderer::ComponentRenderer;
 
+
 #[derive(Clone, Debug, PartialEq, Default)]
 struct ShellPackage {
   default_page: Option<String>,
@@ -801,19 +802,27 @@ fn App() -> Element {
     use_effect(move || {
       if !route_entries().is_empty() {
         let path = current_path();
+        let candidates = path_candidates(&path, &hosted_base_path);
         
         let mut matched_route = None;
-        for candidate in path_candidates(&path, &hosted_base_path) {
-          if let Some(hit) = route_entries().iter().find(|r| r.path == candidate) {
-            matched_route = Some((hit.page_id.clone(), hit.path.clone(), candidate));
+        for candidate in candidates.iter() {
+          if let Some(hit) = route_entries().iter().find(|r| &r.path == candidate) {
+            matched_route = Some((hit.page_id.clone(), hit.path.clone(), candidate.clone()));
             break;
           }
         }
         if matched_route.is_none() {
-          for candidate in path_candidates(&path, &hosted_base_path) {
-            if let Some(hit) = route_entries().iter().find(|r| route_matches(&r.path, &candidate)) {
-              matched_route = Some((hit.page_id.clone(), hit.path.clone(), candidate));
+          for candidate in candidates.iter() {
+            if let Some(hit) = route_entries().iter().find(|r| route_matches(&r.path, candidate)) {
+              matched_route = Some((hit.page_id.clone(), hit.path.clone(), candidate.clone()));
               break;
+            }
+          }
+        }
+        if matched_route.is_none() {
+          if let Some(def_route) = default_route() {
+            if let Some(hit) = route_entries().iter().find(|r| r.path == def_route) {
+              matched_route = Some((hit.page_id.clone(), hit.path.clone(), def_route.clone()));
             }
           }
         }

@@ -65,11 +65,10 @@ pub fn val_to_css(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Bool(b)   => b.to_string(),
-        other                        => other.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        other => other.to_string(),
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct Placement {
@@ -163,12 +162,16 @@ pub struct NodeProps {
 
 impl NodeProps {
     pub fn to_style_string(&self) -> String {
-        self.style.as_ref().map(|styles| {
-            styles.iter()
-                .map(|(k, v)| format!("{}:{};", convert_camel_to_kebab(k), v))
-                .collect::<Vec<String>>()
-                .join("")
-        }).unwrap_or_default()
+        self.style
+            .as_ref()
+            .map(|styles| {
+                styles
+                    .iter()
+                    .map(|(k, v)| format!("{}:{};", convert_camel_to_kebab(k), v))
+                    .collect::<Vec<String>>()
+                    .join("")
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -207,66 +210,121 @@ pub fn create_default_component(comp_type: &str) -> ComponentNode {
 
     // Helper closure to keep inserts concise
     macro_rules! s {
-        ($val:expr) => { $val.to_string() };
+        ($val:expr) => {
+            $val.to_string()
+        };
     }
-
 
     // Setup base defaults depending on type
     match comp_type {
         "Flex" => {
             props.direction = Some("column".to_string());
-            style.insert("width".to_string(),         s!("100%"));
-            style.insert("minHeight".to_string(),     s!("120px"));
-            style.insert("padding".to_string(),       s!("16px"));
-            style.insert("border".to_string(),        s!("1px dashed #cbd5e1"));
+            style.insert("width".to_string(), s!("100%"));
+            style.insert("minHeight".to_string(), s!("120px"));
+            style.insert("padding".to_string(), s!("16px"));
+            style.insert("border".to_string(), s!("1px dashed #cbd5e1"));
             style.insert("backgroundColor".to_string(), s!("#f8fafc"));
-            style.insert("borderRadius".to_string(),  s!("8px"));
+            style.insert("borderRadius".to_string(), s!("8px"));
         }
         "Card" => {
             props.title = Some("New Visual Card".to_string());
-            style.insert("width".to_string(),     s!("100%"));
+            style.insert("width".to_string(), s!("100%"));
             style.insert("minHeight".to_string(), s!("150px"));
-            style.insert("border".to_string(),    s!("1px solid #e2e8f0"));
+            style.insert("border".to_string(), s!("1px solid #e2e8f0"));
         }
         "Container" => {
-            style.insert("width".to_string(),           s!("100%"));
-            style.insert("padding".to_string(),         s!("20px"));
+            style.insert("width".to_string(), s!("100%"));
+            style.insert("padding".to_string(), s!("20px"));
             style.insert("backgroundColor".to_string(), s!("#ffffff"));
         }
         "Stack" => {
-            props.extra.insert("direction".to_string(), serde_json::Value::String("column".to_string()));
-            props.extra.insert("spacing".to_string(),   serde_json::Value::String("12px".to_string()));
+            props.extra.insert(
+                "direction".to_string(),
+                serde_json::Value::String("column".to_string()),
+            );
+            props.extra.insert(
+                "spacing".to_string(),
+                serde_json::Value::String("12px".to_string()),
+            );
             style.insert("width".to_string(), s!("100%"));
         }
         "Grid" => {
-            props.extra.insert("columnsCount".to_string(), serde_json::Value::Number(3.into()));
-            props.extra.insert("gap".to_string(),          serde_json::Value::String("16px".to_string()));
+            props.extra.insert(
+                "columnsCount".to_string(),
+                serde_json::Value::Number(3.into()),
+            );
+            props.extra.insert(
+                "gap".to_string(),
+                serde_json::Value::String("16px".to_string()),
+            );
             style.insert("width".to_string(), s!("100%"));
         }
-        "Button" => { props.label = Some("Action Button".to_string()); }
+        "Button" => {
+            props.label = Some("Action Button".to_string());
+        }
         "Link" => {
             props.text = Some("Clickable Link".to_string());
-            props.extra.insert("href".to_string(), serde_json::Value::String("#".to_string()));
+            props.extra.insert(
+                "href".to_string(),
+                serde_json::Value::String("#".to_string()),
+            );
         }
-        "Heading" => { props.text = Some("Section Heading".to_string()); props.level = Some(2); }
-        "Text" => { props.content = Some("Editable block text...".to_string()); props.variant = Some("p".to_string()); }
+        "Heading" => {
+            props.text = Some("Section Heading".to_string());
+            props.level = Some(2);
+        }
+        "Text" => {
+            props.content = Some("Editable block text...".to_string());
+            props.variant = Some("p".to_string());
+        }
         "Alert" => {
             props.variant = Some("info".to_string());
             props.title = Some("Notice".to_string());
             props.message = Some("Default notification content.".to_string());
         }
-        "Badge" => { props.label = Some("Status Tag".to_string()); props.variant = Some("info".to_string()); }
-        "Input" => { props.label = Some("Input Field".to_string()); props.placeholder = Some("Type content...".to_string()); }
-        "Textarea" => { props.label = Some("Long Textarea".to_string()); props.placeholder = Some("Write details...".to_string()); }
-        "Checkbox" => { props.label = Some("Verify checklist item".to_string()); }
-        "Toggle" | "Switch" => { props.label = Some("Toggle Switch".to_string()); }
-        "Select" => { props.label = Some("Select Option".to_string()); }
-        "DatePicker" => { props.label = Some("Choose Date".to_string()); }
-        "TimePicker" => { props.label = Some("Choose Time".to_string()); }
-        "Iframe" => { props.extra.insert("src".to_string(), serde_json::Value::String("https://dioxuslabs.com".to_string())); }
-        "YearCalendar" => { style.insert("width".to_string(), s!("100%")); }
-        "TimeViewer" => { props.label = Some("Live Clock".to_string()); props.live = Some(true); }
-        "StarRating" => { style.insert("padding".to_string(), s!("8px")); }
+        "Badge" => {
+            props.label = Some("Status Tag".to_string());
+            props.variant = Some("info".to_string());
+        }
+        "Input" => {
+            props.label = Some("Input Field".to_string());
+            props.placeholder = Some("Type content...".to_string());
+        }
+        "Textarea" => {
+            props.label = Some("Long Textarea".to_string());
+            props.placeholder = Some("Write details...".to_string());
+        }
+        "Checkbox" => {
+            props.label = Some("Verify checklist item".to_string());
+        }
+        "Toggle" | "Switch" => {
+            props.label = Some("Toggle Switch".to_string());
+        }
+        "Select" => {
+            props.label = Some("Select Option".to_string());
+        }
+        "DatePicker" => {
+            props.label = Some("Choose Date".to_string());
+        }
+        "TimePicker" => {
+            props.label = Some("Choose Time".to_string());
+        }
+        "Iframe" => {
+            props.extra.insert(
+                "src".to_string(),
+                serde_json::Value::String("https://dioxuslabs.com".to_string()),
+            );
+        }
+        "YearCalendar" => {
+            style.insert("width".to_string(), s!("100%"));
+        }
+        "TimeViewer" => {
+            props.label = Some("Live Clock".to_string());
+            props.live = Some(true);
+        }
+        "StarRating" => {
+            style.insert("padding".to_string(), s!("8px"));
+        }
         _ => {}
     }
 
@@ -295,9 +353,20 @@ pub fn create_default_component(comp_type: &str) -> ComponentNode {
     }
 }
 
-
 pub fn is_container(comp_type: &str) -> bool {
-    matches!(comp_type, "Flex" | "Card" | "Layout" | "Container" | "Stack" | "Grid" | "Tabs" | "Tab" | "Form" | "DynamicCardGrid")
+    matches!(
+        comp_type,
+        "Flex"
+            | "Card"
+            | "Layout"
+            | "Container"
+            | "Stack"
+            | "Grid"
+            | "Tabs"
+            | "Tab"
+            | "Form"
+            | "DynamicCardGrid"
+    )
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
@@ -352,7 +421,9 @@ pub struct CompiledPackage {
     pub pages: HashMap<String, Page>,
 }
 
-pub fn deserialize_style_map<'de, D>(deserializer: D) -> Result<Option<HashMap<String, String>>, D::Error>
+pub fn deserialize_style_map<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -362,7 +433,8 @@ where
         type Value = Option<HashMap<String, String>>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a map containing string keys and string, number, or boolean values")
+            formatter
+                .write_str("a map containing string keys and string, number, or boolean values")
         }
 
         fn visit_none<E>(self) -> Result<Self::Value, E>
@@ -388,8 +460,8 @@ where
                 let str_val = match value {
                     serde_json::Value::String(s) => s,
                     serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b)   => b.to_string(),
-                    other                        => other.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    other => other.to_string(),
                 };
                 result.insert(key, str_val);
             }
@@ -399,4 +471,3 @@ where
 
     deserializer.deserialize_option(StyleMapVisitor)
 }
-

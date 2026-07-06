@@ -1,5 +1,5 @@
+use crate::models::{convert_camel_to_kebab, is_container, val_to_css, ComponentNode};
 use dioxus::prelude::*;
-use crate::models::{ComponentNode, is_container, val_to_css, convert_camel_to_kebab};
 
 #[cfg(target_arch = "wasm32")]
 use crate::normalize_href_for_navigate;
@@ -37,7 +37,11 @@ fn icon_label_to_glyph(name: &str) -> &'static str {
 }
 
 fn normalize_logo_src(input: &str) -> String {
-    if input.is_empty() || input.starts_with("http://") || input.starts_with("https://") || input.starts_with('/') {
+    if input.is_empty()
+        || input.starts_with("http://")
+        || input.starts_with("https://")
+        || input.starts_with('/')
+    {
         return input.to_string();
     }
     format!("/{}", input)
@@ -45,8 +49,8 @@ fn normalize_logo_src(input: &str) -> String {
 
 fn is_image_source(src: &str) -> bool {
     let src = src.trim().to_lowercase();
-    src.starts_with('/') 
-        || src.starts_with("http://") 
+    src.starts_with('/')
+        || src.starts_with("http://")
         || src.starts_with("https://")
         || src.starts_with("data:")
         || src.starts_with("blob:")
@@ -60,7 +64,6 @@ fn is_image_source(src: &str) -> bool {
         || src.ends_with(".gif")
         || src.ends_with(".ico")
 }
-
 
 fn normalize_media_source(raw_src: &str) -> String {
     let src = raw_src.trim();
@@ -81,7 +84,7 @@ fn normalize_media_source(raw_src: &str) -> String {
         .unwrap_or("http://localhost:8080")
         .trim_end_matches('/')
         .to_string();
-        
+
     let compile_id = option_env!("COMPILE_ID").unwrap_or("");
     let clean_src = src.strip_prefix('/').unwrap_or(src);
 
@@ -107,7 +110,8 @@ fn get_css_pixel_number(value: &str) -> Option<f64> {
 
 fn get_component_fallback_size(comp_type: &str) -> (f64, f64) {
     match comp_type.to_lowercase().as_str() {
-        "button" | "input" | "select" | "searchinput" | "textarea" | "checkbox" | "toggle" | "switch" => (120.0, 48.0),
+        "button" | "input" | "select" | "searchinput" | "textarea" | "checkbox" | "toggle"
+        | "switch" => (120.0, 48.0),
         "text" | "heading" => (120.0, 32.0),
         "image" => (320.0, 200.0),
         "chart" => (520.0, 300.0),
@@ -131,7 +135,8 @@ fn calculate_freeform_extent(children: &[ComponentNode]) -> Option<f64> {
             None => continue,
         };
 
-        let is_absolute = style_map.get("position")
+        let is_absolute = style_map
+            .get("position")
             .map(|v| v.to_lowercase() == "absolute")
             .unwrap_or(false);
 
@@ -139,11 +144,13 @@ fn calculate_freeform_extent(children: &[ComponentNode]) -> Option<f64> {
             continue;
         }
 
-        let top = style_map.get("top")
+        let top = style_map
+            .get("top")
             .and_then(|v| get_css_pixel_number(v))
             .unwrap_or(0.0);
 
-        let height = style_map.get("height")
+        let height = style_map
+            .get("height")
             .or_else(|| style_map.get("minHeight"))
             .and_then(|v| get_css_pixel_number(v))
             .unwrap_or_else(|| get_component_fallback_size(&child.component_type).1);
@@ -161,7 +168,230 @@ fn calculate_freeform_extent(children: &[ComponentNode]) -> Option<f64> {
     }
 }
 
-fn resolve_min_height(style_map: Option<&std::collections::HashMap<String, String>>, max_bottom: f64) -> String {
+fn calculate_recursive_freeform_extent(children: &[ComponentNode], current_top: f64) -> f64 {
+    let padding = 24.0;
+    let mut max_bottom = current_top;
+
+    for child in children {
+        let style_map = match child.props.style {
+            Some(ref s) => s,
+            None => continue,
+        };
+
+        let is_absolute = style_map
+            .get("position")
+            .map(|v| v.to_lowercase() == "absolute")
+            .unwrap_or(false)
+            || child.placement.is_some();
+
+        let child_top = style_map
+            .get("top")
+            .cloned()
+            .or_else(|| child.placement.as_ref().and_then(|p| p.top.clone()))
+            .and_then(|v| get_css_pixel_number(&v))
+            .unwrap_or(0.0);
+
+        let height = style_map
+            .get("height")
+            .or_else(|| style_map.get("minHeight"))
+            .and_then(|v| get_css_pixel_number(v))
+            .unwrap_or_else(|| get_component_fallback_size(&child.component_type).1);
+
+        let absolute_top = if is_absolute {
+            current_top + child_top
+        } else {
+            current_top
+        };
+
+        let child_max_bottom = if !child.children.is_empty() {
+            calculate_recursive_freeform_extent(&child.children, absolute_top)
+        } else {
+            absolute_top + height + padding
+        };
+
+        let child_extent = (absolute_top + height + padding).max(child_max_bottom);
+        if child_extent > max_bottom {
+            max_bottom = child_extent;
+        }
+    }
+
+    max_bottom
+}
+
+fn calculate_recursive_freeform_width_extent(children: &[ComponentNode], current_left: f64) -> f64 {
+    let padding = 24.0;
+    let mut max_right = current_left;
+
+    for child in children {
+        let style_map = match child.props.style {
+            Some(ref s) => s,
+            None => continue,
+        };
+
+        let is_absolute = style_map
+            .get("position")
+            .map(|v| v.to_lowercase() == "absolute")
+            .unwrap_or(false)
+            || child.placement.is_some();
+
+        let child_left = style_map
+            .get("left")
+            .cloned()
+            .or_else(|| child.placement.as_ref().and_then(|p| p.left.clone()))
+            .and_then(|v| get_css_pixel_number(&v))
+            .unwrap_or(0.0);
+
+        let width = style_map
+            .get("width")
+            .or_else(|| style_map.get("minWidth"))
+            .and_then(|v| get_css_pixel_number(v))
+            .unwrap_or_else(|| get_component_fallback_size(&child.component_type).0);
+
+        let absolute_left = if is_absolute {
+            current_left + child_left
+        } else {
+            current_left
+        };
+
+        let child_max_right = if !child.children.is_empty() {
+            calculate_recursive_freeform_width_extent(&child.children, absolute_left)
+        } else {
+            absolute_left + width + padding
+        };
+
+        let child_extent = (absolute_left + width + padding).max(child_max_right);
+        if child_extent > max_right {
+            max_right = child_extent;
+        }
+    }
+
+    max_right
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ModalSizingStyles {
+    dialog_style: String,
+    body_style: String,
+}
+
+const MODAL_VIEWPORT_WIDTH_CAP: &str = "calc(100vw - 24px)";
+const MODAL_VIEWPORT_HEIGHT_CAP: &str = "calc(100vh - 24px)";
+const MODAL_BODY_HEIGHT_CAP: &str = "calc(100vh - 134px)";
+const MODAL_CHROME_HEIGHT: f64 = 110.0;
+
+fn css_min_with_cap(value: &str, cap: &str) -> String {
+    format!("min({}, {})", value, cap)
+}
+
+fn css_px_min_with_cap(value: f64, cap: &str) -> String {
+    css_min_with_cap(&format!("{:.0}px", value), cap)
+}
+
+fn modal_sizing_styles(node: &ComponentNode) -> ModalSizingStyles {
+    let children_bottom = calculate_recursive_freeform_extent(&node.children, 0.0);
+    let children_right = calculate_recursive_freeform_width_extent(&node.children, 0.0);
+    let style_map = node.props.style.clone().unwrap_or_default();
+
+    let mut dialog_style = format!(
+        "background-color: #ffffff; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; animation: scaleIn 0.2s ease-out; max-width: {}; max-height: {}; box-sizing: border-box;",
+        MODAL_VIEWPORT_WIDTH_CAP, MODAL_VIEWPORT_HEIGHT_CAP
+    );
+
+    if let Some(w) = style_map.get("width") {
+        if let Some(w_val) = get_css_pixel_number(w) {
+            dialog_style.push_str(&format!(
+                "width: {};",
+                css_px_min_with_cap(w_val.max(children_right), MODAL_VIEWPORT_WIDTH_CAP)
+            ));
+        } else {
+            dialog_style.push_str(&format!(
+                "width: {};",
+                css_min_with_cap(w, MODAL_VIEWPORT_WIDTH_CAP)
+            ));
+        }
+    } else {
+        let base_w = children_right.max(720.0);
+        dialog_style.push_str(&format!(
+            "width: {};",
+            css_px_min_with_cap(base_w, MODAL_VIEWPORT_WIDTH_CAP)
+        ));
+    }
+
+    if let Some(h) = style_map.get("height") {
+        if let Some(h_val) = get_css_pixel_number(h) {
+            dialog_style.push_str(&format!(
+                "height: {};",
+                css_px_min_with_cap(h_val, MODAL_VIEWPORT_HEIGHT_CAP)
+            ));
+        } else {
+            dialog_style.push_str(&format!(
+                "height: {};",
+                css_min_with_cap(h, MODAL_VIEWPORT_HEIGHT_CAP)
+            ));
+        }
+    }
+
+    if let Some(min_h) = style_map.get("minHeight") {
+        if let Some(min_h_val) = get_css_pixel_number(min_h) {
+            let min_needed_h = children_bottom + MODAL_CHROME_HEIGHT;
+            dialog_style.push_str(&format!(
+                "min-height: {};",
+                css_px_min_with_cap(min_h_val.max(min_needed_h), MODAL_VIEWPORT_HEIGHT_CAP)
+            ));
+        } else {
+            dialog_style.push_str(&format!(
+                "min-height: {};",
+                css_min_with_cap(min_h, MODAL_VIEWPORT_HEIGHT_CAP)
+            ));
+        }
+    } else if children_bottom > 0.0 {
+        let min_needed_h = children_bottom + MODAL_CHROME_HEIGHT;
+        dialog_style.push_str(&format!(
+            "min-height: {};",
+            css_px_min_with_cap(min_needed_h, MODAL_VIEWPORT_HEIGHT_CAP)
+        ));
+    }
+
+    if let Some(min_w) = style_map.get("minWidth") {
+        if let Some(min_w_val) = get_css_pixel_number(min_w) {
+            dialog_style.push_str(&format!(
+                "min-width: {};",
+                css_px_min_with_cap(min_w_val.max(children_right), MODAL_VIEWPORT_WIDTH_CAP)
+            ));
+        } else {
+            dialog_style.push_str(&format!(
+                "min-width: {};",
+                css_min_with_cap(min_w, MODAL_VIEWPORT_WIDTH_CAP)
+            ));
+        }
+    } else if children_right > 0.0 {
+        dialog_style.push_str(&format!(
+            "min-width: {};",
+            css_px_min_with_cap(children_right, MODAL_VIEWPORT_WIDTH_CAP)
+        ));
+    }
+
+    let mut body_style = format!(
+        "position: relative; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; flex: 1 1 auto; min-height: 0; min-width: 0; max-height: {}; box-sizing: border-box;",
+        MODAL_BODY_HEIGHT_CAP
+    );
+    if children_bottom > 0.0 {
+        body_style.push_str(&format!(
+            "height: {};",
+            css_px_min_with_cap(children_bottom, MODAL_BODY_HEIGHT_CAP)
+        ));
+    }
+
+    ModalSizingStyles {
+        dialog_style,
+        body_style,
+    }
+}
+
+fn resolve_min_height(
+    style_map: Option<&std::collections::HashMap<String, String>>,
+    max_bottom: f64,
+) -> String {
     let mut base_val = None;
     if let Some(map) = style_map {
         if let Some(val) = map.get("minHeight").or_else(|| map.get("height")) {
@@ -183,13 +413,19 @@ fn resolve_min_height(style_map: Option<&std::collections::HashMap<String, Strin
 
 fn strip_guide_borders(style_map: &mut std::collections::HashMap<String, String>, comp_type: &str) {
     let type_lower = comp_type.to_lowercase();
-    if type_lower == "layout" || type_lower == "container" || type_lower == "flex" || type_lower == "grid" || type_lower == "box" {
+    if type_lower == "layout"
+        || type_lower == "container"
+        || type_lower == "flex"
+        || type_lower == "grid"
+        || type_lower == "box"
+    {
         let has_dashed_or_dotted = style_map.iter().any(|(k, v)| {
             let k_lower = k.to_lowercase();
             let v_lower = v.to_lowercase();
             (k_lower == "border" && (v_lower.contains("dashed") || v_lower.contains("dotted")))
                 || (k_lower == "borderstyle" && (v_lower == "dashed" || v_lower == "dotted"))
-                || (k_lower == "outline" && (v_lower.contains("dashed") || v_lower.contains("dotted")))
+                || (k_lower == "outline"
+                    && (v_lower.contains("dashed") || v_lower.contains("dotted")))
                 || (k_lower == "outlinestyle" && (v_lower == "dashed" || v_lower == "dotted"))
         });
 
@@ -210,10 +446,474 @@ fn strip_guide_borders(style_map: &mut std::collections::HashMap<String, String>
     }
 }
 
-fn is_item_visible(item: &serde_json::Value, global_data: &serde_json::Value, local_item: Option<&serde_json::Value>) -> bool {
+fn should_render_as_flow_layout(
+    node: &ComponentNode,
+    is_repeater_child: bool,
+    is_flow_context: bool,
+) -> bool {
+    if is_repeater_child {
+        return true;
+    }
+
+    let has_explicit_absolute = node
+        .props
+        .style
+        .as_ref()
+        .and_then(|s| s.get("position"))
+        .map(|v| v.to_lowercase() == "absolute")
+        .unwrap_or(false);
+
+    !has_explicit_absolute && is_flow_context
+}
+
+fn modal_on_open_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
+    node.on_load.clone()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct DropdownOption {
+    label: String,
+    value: String,
+}
+
+fn node_extra_str<'a>(node: &'a ComponentNode, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| node.props.extra.get(*key).and_then(|value| value.as_str()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn dropdown_label_field(node: &ComponentNode) -> String {
+    node_extra_str(
+        node,
+        &[
+            "labelField",
+            "label_field",
+            "optionLabel",
+            "option_label",
+            "optionLabelKey",
+            "option_label_key",
+            "optionsLabelKey",
+            "options_label_key",
+            "labelKey",
+            "label_key",
+        ],
+    )
+    .unwrap_or("label")
+    .to_string()
+}
+
+fn dropdown_value_field(node: &ComponentNode) -> String {
+    node_extra_str(
+        node,
+        &[
+            "valueField",
+            "value_field",
+            "optionValue",
+            "option_value",
+            "optionValueKey",
+            "option_value_key",
+            "optionsValueKey",
+            "options_value_key",
+            "valueKey",
+            "value_key",
+        ],
+    )
+    .unwrap_or("value")
+    .to_string()
+}
+
+fn dropdown_data_source_path(node: &ComponentNode) -> Option<String> {
+    node.props
+        .data_source
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            node_extra_str(
+                node,
+                &[
+                    "dataSource",
+                    "data_source",
+                    "optionsSource",
+                    "options_source",
+                    "optionsBind",
+                    "options_bind",
+                    "optionSource",
+                    "option_source",
+                    "optionsDataSource",
+                    "options_data_source",
+                    "itemsSource",
+                    "items_source",
+                    "source",
+                ],
+            )
+            .map(ToString::to_string)
+        })
+}
+
+fn dropdown_target_key(node: &ComponentNode) -> String {
+    node_extra_str(node, &["targetKey", "target_key"])
+        .map(ToString::to_string)
+        .or_else(|| {
+            dropdown_data_source_path(node)
+                .map(|path| get_actual_data_path(&path))
+                .filter(|path| !path.is_empty() && !path.contains("item."))
+                .and_then(|path| path.split('.').last().map(ToString::to_string))
+        })
+        .unwrap_or_else(|| "result".to_string())
+}
+
+fn dropdown_load_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
+    let mut actions = node.on_load.clone();
+    let Some(api_url) = node_extra_str(
+        node,
+        &[
+            "apiUrl",
+            "api_url",
+            "optionsApiUrl",
+            "options_api_url",
+            "fetchUrl",
+            "fetch_url",
+        ],
+    ) else {
+        return actions;
+    };
+
+    let method = node
+        .props
+        .method
+        .clone()
+        .or_else(|| node_extra_str(node, &["method"]).map(ToString::to_string))
+        .unwrap_or_else(|| "GET".to_string());
+    let body = node
+        .props
+        .request_body
+        .clone()
+        .or_else(|| node.props.extra.get("requestBody").cloned())
+        .or_else(|| node.props.extra.get("request_body").cloned())
+        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+
+    actions.push(serde_json::json!({
+        "type": "API_CALL",
+        "payload": {
+            "url": api_url,
+            "method": method,
+            "body": body,
+            "targetKey": dropdown_target_key(node),
+        }
+    }));
+    actions
+}
+
+fn dropdown_value_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => Some(value.to_string()),
+        _ => Some(json_value_to_display_string(value)),
+    }
+}
+
+fn dropdown_object_field(
+    map: &serde_json::Map<String, serde_json::Value>,
+    preferred: &str,
+    fallbacks: &[&str],
+) -> Option<String> {
+    map.get(preferred)
+        .and_then(dropdown_value_to_string)
+        .or_else(|| {
+            fallbacks
+                .iter()
+                .find_map(|key| map.get(*key).and_then(dropdown_value_to_string))
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn dropdown_option_from_value(
+    value: &serde_json::Value,
+    label_field: &str,
+    value_field: &str,
+) -> Option<DropdownOption> {
+    match value {
+        serde_json::Value::String(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::Bool(_) => {
+            let display = json_value_to_display_string(value);
+            Some(DropdownOption {
+                label: display.clone(),
+                value: display,
+            })
+        }
+        serde_json::Value::Object(map) => {
+            let option_value = dropdown_object_field(
+                map,
+                value_field,
+                &[
+                    "value", "id", "key", "code", "slug", "name", "label", "title",
+                ],
+            )?;
+            let option_label = dropdown_object_field(
+                map,
+                label_field,
+                &[
+                    "label",
+                    "name",
+                    "title",
+                    "text",
+                    "display",
+                    "displayName",
+                    "value",
+                    "id",
+                ],
+            )
+            .unwrap_or_else(|| option_value.clone());
+
+            Some(DropdownOption {
+                label: option_label,
+                value: option_value,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn dropdown_options_from_value(
+    value: &serde_json::Value,
+    label_field: &str,
+    value_field: &str,
+) -> Vec<DropdownOption> {
+    if let Some(arr) = value.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| dropdown_option_from_value(item, label_field, value_field))
+            .collect();
+    }
+
+    if let Some(arr) = extract_array(value, "") {
+        return arr
+            .iter()
+            .filter_map(|item| dropdown_option_from_value(item, label_field, value_field))
+            .collect();
+    }
+
+    value
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .filter_map(|(key, value)| {
+                    dropdown_value_to_string(value).map(|label| DropdownOption {
+                        label,
+                        value: key.clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn dropdown_static_options(node: &ComponentNode) -> Option<&serde_json::Value> {
+    node.props
+        .extra
+        .get("options")
+        .or_else(|| node.props.extra.get("items"))
+        .or_else(|| node.props.extra.get("choices"))
+        .or_else(|| node.props.extra.get("values"))
+        .or(node.props.data.as_ref())
+}
+
+fn dropdown_source_value(
+    path: &str,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let actual_path = get_actual_data_path(path);
+    let path_lower = actual_path.to_lowercase();
+
+    if path_lower == "item" {
+        return local_item.cloned();
+    }
+
+    if path_lower.starts_with("item.") {
+        return local_item.and_then(|item| resolve_json_value_path(item, &actual_path[5..]));
+    }
+
+    resolve_json_value_path(global_data, &actual_path).or_else(|| {
+        actual_path
+            .split('.')
+            .last()
+            .and_then(|last| resolve_json_value_path(global_data, last))
+    })
+}
+
+fn dropdown_options_for_node(
+    node: &ComponentNode,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> Vec<DropdownOption> {
+    let label_field = dropdown_label_field(node);
+    let value_field = dropdown_value_field(node);
+
+    if let Some(value) = dropdown_static_options(node) {
+        let options = dropdown_options_from_value(value, &label_field, &value_field);
+        if !options.is_empty() {
+            return options;
+        }
+    }
+
+    if let Some(path) = dropdown_data_source_path(node) {
+        if let Some(value) = dropdown_source_value(&path, local_item, global_data) {
+            let options = dropdown_options_from_value(&value, &label_field, &value_field);
+            if !options.is_empty() {
+                return options;
+            }
+        }
+    }
+
+    if let Some(target_key) = node_extra_str(node, &["targetKey", "target_key"]) {
+        if let Some(value) = dropdown_source_value(target_key, local_item, global_data) {
+            return dropdown_options_from_value(&value, &label_field, &value_field);
+        }
+    }
+
+    Vec::new()
+}
+
+fn dropdown_selected_values(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::Array(values)) => {
+            values.iter().filter_map(dropdown_value_to_string).collect()
+        }
+        Some(value) => dropdown_value_to_string(value).into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+fn dropdown_values_to_json(values: &[String]) -> serde_json::Value {
+    serde_json::Value::Array(
+        values
+            .iter()
+            .map(|value| serde_json::Value::String(value.clone()))
+            .collect(),
+    )
+}
+
+fn dropdown_option_label(options: &[DropdownOption], value: &str) -> String {
+    options
+        .iter()
+        .find(|option| option.value == value)
+        .map(|option| option.label.clone())
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn action_array_field(action: &serde_json::Value, keys: &[&str]) -> Option<Vec<serde_json::Value>> {
+    let payload = action.get("payload");
+    keys.iter()
+        .find_map(|key| {
+            action
+                .get(*key)
+                .or_else(|| payload.and_then(|payload| payload.get(*key)))
+                .and_then(|value| value.as_array())
+                .cloned()
+        })
+        .filter(|actions| !actions.is_empty())
+}
+
+fn action_success_actions(action: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+    action_array_field(action, &["onSuccess", "on_success"])
+}
+
+fn action_error_actions(action: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+    action_array_field(action, &["onError", "on_error"])
+}
+
+fn is_submit_form_action(action: &serde_json::Value) -> bool {
+    action
+        .get("type")
+        .and_then(|value| value.as_str())
+        .map(|action_type| action_type.eq_ignore_ascii_case("SUBMIT_FORM"))
+        .unwrap_or(false)
+}
+
+fn button_has_submit_form_action(actions: &[serde_json::Value]) -> bool {
+    actions.iter().any(is_submit_form_action)
+}
+
+fn button_click_actions(actions: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    actions
+        .iter()
+        .filter(|action| !is_submit_form_action(action))
+        .cloned()
+        .collect()
+}
+
+fn form_submit_scope(
+    form_values: serde_json::Value,
+    local_item: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut scope = match local_item {
+        Some(serde_json::Value::Object(map)) => map,
+        Some(value) => {
+            let mut map = serde_json::Map::new();
+            map.insert("item".to_string(), value);
+            map
+        }
+        None => serde_json::Map::new(),
+    };
+
+    scope.insert("form".to_string(), form_values.clone());
+    scope.insert("formData".to_string(), form_values.clone());
+    scope.insert("formValues".to_string(), form_values);
+    serde_json::Value::Object(scope)
+}
+
+fn form_control_name(node: &ComponentNode) -> String {
+    node_extra_str(node, &["name", "fieldName", "field_name"])
+        .map(ToString::to_string)
+        .or_else(|| {
+            node.props.bind.as_deref().and_then(|bind| {
+                normalized_bind_expression(bind)
+                    .and_then(|path| path.split('.').last().map(ToString::to_string))
+            })
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| node.id.clone())
+}
+
+fn form_event_values_to_json(values: Vec<(String, FormValue)>) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (key, value) in values {
+        if key.trim().is_empty() {
+            continue;
+        }
+
+        let value = match value {
+            FormValue::Text(text) => serde_json::Value::String(text),
+            FormValue::File(_) => serde_json::Value::Null,
+        };
+
+        match map.get_mut(&key) {
+            Some(serde_json::Value::Array(existing)) => existing.push(value),
+            Some(existing) => {
+                let previous = std::mem::replace(existing, serde_json::Value::Null);
+                *existing = serde_json::Value::Array(vec![previous, value]);
+            }
+            None => {
+                map.insert(key, value);
+            }
+        }
+    }
+
+    serde_json::Value::Object(map)
+}
+
+fn is_item_visible(
+    item: &serde_json::Value,
+    global_data: &serde_json::Value,
+    local_item: Option<&serde_json::Value>,
+) -> bool {
     if let Some(required_role_val) = item.get("requiredRole") {
         if let Some(required_role) = required_role_val.as_str() {
-            let role = global_data.get("authSession")
+            let role = global_data
+                .get("authSession")
                 .and_then(|session| session.get("role"))
                 .and_then(|role_val| role_val.as_str())
                 .unwrap_or("");
@@ -224,7 +924,8 @@ fn is_item_visible(item: &serde_json::Value, global_data: &serde_json::Value, lo
         }
     }
 
-    let visible_if = item.get("visibleIf")
+    let visible_if = item
+        .get("visibleIf")
         .or_else(|| item.get("when"))
         .or_else(|| item.get("visibleWhen"))
         .and_then(|v| v.as_str());
@@ -235,9 +936,17 @@ fn is_item_visible(item: &serde_json::Value, global_data: &serde_json::Value, lo
             return true;
         }
 
-        let clean_expr = trimmed.strip_prefix("{{").and_then(|s| s.strip_suffix("}}")).unwrap_or(trimmed).trim();
+        let clean_expr = trimmed
+            .strip_prefix("{{")
+            .and_then(|s| s.strip_suffix("}}"))
+            .unwrap_or(trimmed)
+            .trim();
         let is_negated = clean_expr.starts_with('!');
-        let path = if is_negated { &clean_expr[1..] } else { clean_expr };
+        let path = if is_negated {
+            &clean_expr[1..]
+        } else {
+            clean_expr
+        };
 
         let resolved = if path.starts_with("item.") {
             let sub_path = &path[5..];
@@ -251,12 +960,15 @@ fn is_item_visible(item: &serde_json::Value, global_data: &serde_json::Value, lo
             let sub_path = &path[5..];
             resolve_json_path(global_data, sub_path)
         } else {
-            local_item.and_then(|item| resolve_json_path(item, path))
+            local_item
+                .and_then(|item| resolve_json_path(item, path))
                 .or_else(|| resolve_json_path(global_data, path))
         };
 
         let is_truthy = match resolved {
-            Some(ref s) => !s.is_empty() && s != "false" && s != "null" && s != "undefined" && s != "0",
+            Some(ref s) => {
+                !s.is_empty() && s != "false" && s != "null" && s != "undefined" && s != "0"
+            }
             None => false,
         };
 
@@ -270,7 +982,11 @@ fn is_item_visible(item: &serde_json::Value, global_data: &serde_json::Value, lo
     true
 }
 
-fn is_component_visible(node: &ComponentNode, global_data: &serde_json::Value, local_item: Option<&serde_json::Value>) -> bool {
+fn is_component_visible(
+    node: &ComponentNode,
+    global_data: &serde_json::Value,
+    local_item: Option<&serde_json::Value>,
+) -> bool {
     let mut map = serde_json::Map::new();
     for (k, v) in &node.props.extra {
         map.insert(k.clone(), v.clone());
@@ -298,7 +1014,11 @@ fn nav_item_actions(item: &serde_json::Value) -> Vec<serde_json::Value> {
         .to_uppercase();
 
     if action_type == "OPEN_MODAL" {
-        if let Some(modal_id) = item.get("modalId").or_else(|| item.get("modal_id")).and_then(|v| v.as_str()) {
+        if let Some(modal_id) = item
+            .get("modalId")
+            .or_else(|| item.get("modal_id"))
+            .and_then(|v| v.as_str())
+        {
             return vec![serde_json::json!({
                 "type": "OPEN_MODAL",
                 "payload": { "modalId": modal_id }
@@ -312,13 +1032,20 @@ fn nav_item_actions(item: &serde_json::Value) -> Vec<serde_json::Value> {
             .or_else(|| item.get("url"))
             .and_then(|v| v.as_str())
             .unwrap_or("/api/run/my_workflow");
-        let method = item.get("method").and_then(|v| v.as_str()).unwrap_or("POST");
+        let method = item
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("POST");
         let body = item
             .get("body")
             .filter(|value| value.is_object())
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
-        let target_key = item.get("targetKey").or_else(|| item.get("target_key")).and_then(|v| v.as_str()).unwrap_or("result");
+        let target_key = item
+            .get("targetKey")
+            .or_else(|| item.get("target_key"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("result");
         return vec![serde_json::json!({
             "type": "API_CALL",
             "payload": {
@@ -336,7 +1063,7 @@ fn nav_item_actions(item: &serde_json::Value) -> Vec<serde_json::Value> {
         .or_else(|| item.get("target"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
-        
+
     if target.is_empty() {
         Vec::new()
     } else if target.starts_with('/') {
@@ -347,12 +1074,36 @@ fn nav_item_actions(item: &serde_json::Value) -> Vec<serde_json::Value> {
 }
 
 fn bar_button_style(item: &serde_json::Value, is_top: bool, theme: &str) -> String {
-    let variant = item.get("variant").and_then(|v| v.as_str()).unwrap_or("ghost").to_lowercase();
-    let border_color = if theme.eq_ignore_ascii_case("dark") { "#2a3565" } else { "#e5e7eb" };
-    let muted = if theme.eq_ignore_ascii_case("dark") { "#cbd5e1" } else { "#475569" };
-    let default_bg = if theme.eq_ignore_ascii_case("dark") { "rgba(26,37,85,0.4)" } else { "#f8fafc" };
+    let variant = item
+        .get("variant")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ghost")
+        .to_lowercase();
+    let border_color = if theme.eq_ignore_ascii_case("dark") {
+        "#2a3565"
+    } else {
+        "#e5e7eb"
+    };
+    let muted = if theme.eq_ignore_ascii_case("dark") {
+        "#cbd5e1"
+    } else {
+        "#475569"
+    };
+    let default_bg = if theme.eq_ignore_ascii_case("dark") {
+        "rgba(26,37,85,0.4)"
+    } else {
+        "#f8fafc"
+    };
     let (bg, color, border) = match variant.as_str() {
-        "primary" => (if theme.eq_ignore_ascii_case("dark") { "#4a90e2" } else { "#07175e" }, "#ffffff", "transparent"),
+        "primary" => (
+            if theme.eq_ignore_ascii_case("dark") {
+                "#4a90e2"
+            } else {
+                "#07175e"
+            },
+            "#ffffff",
+            "transparent",
+        ),
         "danger" => ("#dc3545", "#ffffff", "transparent"),
         "outline" => ("transparent", muted, border_color),
         "default" => (default_bg, muted, border_color),
@@ -367,6 +1118,158 @@ fn bar_button_style(item: &serde_json::Value, is_top: bool, theme: &str) -> Stri
         color,
         if is_top { "center" } else { "left" },
     )
+}
+
+fn json_value_to_display_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn json_value_to_bool(value: &serde_json::Value) -> Option<bool> {
+    match value {
+        serde_json::Value::Bool(b) => Some(*b),
+        serde_json::Value::Number(n) => n.as_f64().map(|v| v != 0.0),
+        serde_json::Value::String(s) => match s.trim().to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Some(true),
+            "false" | "0" | "no" | "off" | "" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn normalized_bind_expression(bind: &str) -> Option<String> {
+    let trimmed = bind.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let unwrapped = trimmed
+        .strip_prefix("{{")
+        .and_then(|value| value.strip_suffix("}}"))
+        .unwrap_or(trimmed)
+        .trim();
+
+    if unwrapped.is_empty() {
+        None
+    } else {
+        Some(unwrapped.to_string())
+    }
+}
+
+fn resolve_node_bind_value(
+    node: &ComponentNode,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let expr = normalized_bind_expression(node.props.bind.as_deref()?)?;
+    let wrapped = serde_json::Value::String(format!("{{{{{}}}}}", expr));
+    Some(resolve_json_templates(&wrapped, local_item, global_data))
+}
+
+fn set_bind_path_value(bind: &str, root: &mut serde_json::Value, value: serde_json::Value) {
+    let Some(expr) = normalized_bind_expression(bind) else {
+        return;
+    };
+
+    let expr_lower = expr.to_lowercase();
+    if expr_lower == "item"
+        || expr_lower.starts_with("item.")
+        || expr_lower == "row"
+        || expr_lower.starts_with("row.")
+        || expr_lower == "rowdata"
+        || expr_lower.starts_with("rowdata.")
+    {
+        return;
+    }
+
+    set_json_value_at_path(root, &expr, value);
+}
+
+fn set_node_bind_value(
+    node: &ComponentNode,
+    root: &mut serde_json::Value,
+    value: serde_json::Value,
+) {
+    if let Some(bind) = node.props.bind.as_deref() {
+        set_bind_path_value(bind, root, value);
+    }
+}
+
+fn apply_bound_value_to_node(node: &mut ComponentNode, value: &serde_json::Value) {
+    node.props
+        .extra
+        .insert("__boundValue".to_string(), value.clone());
+
+    let display = json_value_to_display_string(value);
+    match node.component_type.as_str() {
+        "Text" => node.props.content = Some(display),
+        "Heading" => node.props.text = Some(display),
+        "Button" | "Badge" | "StatusBadge" => node.props.label = Some(display),
+        "Alert" => node.props.message = Some(display),
+        "Card" | "Header" | "Author" | "Sidebar" | "Topbar" | "DrawerPanel" | "Modal"
+        | "TargetKpiCard" => node.props.title = Some(display),
+        "Link" | "nav-button" => node.props.text = Some(display),
+        "Image" | "Video" | "Audio" | "Iframe" => {
+            node.props
+                .extra
+                .insert("src".to_string(), serde_json::Value::String(display));
+        }
+        "Avatar" => {
+            let key = if is_image_source(&display) {
+                "src"
+            } else {
+                "fallback"
+            };
+            node.props
+                .extra
+                .insert(key.to_string(), serde_json::Value::String(display));
+        }
+        "Table" | "DynamicTable" => {
+            if value.is_array() {
+                node.props.rows = Some(value.clone());
+            }
+        }
+        "Chart" => {
+            node.props.data = Some(value.clone());
+        }
+        "GaugeChart" | "ProgressRing" => {
+            node.props.extra.insert("value".to_string(), value.clone());
+        }
+        "Input"
+        | "SearchInput"
+        | "Textarea"
+        | "Select"
+        | "DatePicker"
+        | "TimePicker"
+        | "Checkbox"
+        | "Toggle"
+        | "Switch"
+        | "TagInput"
+        | "OtpInput"
+        | "ColorPicker"
+        | "MultiSelectDropdown"
+        | "RichTextEditor"
+        | "SignaturePad" => {}
+        _ => {
+            if node.props.text.is_some() {
+                node.props.text = Some(display);
+            } else if node.props.content.is_some() {
+                node.props.content = Some(display);
+            } else if node.props.label.is_some() {
+                node.props.label = Some(display);
+            } else if node.props.title.is_some() {
+                node.props.title = Some(display);
+            } else {
+                node.props.content = Some(display);
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -410,18 +1313,18 @@ pub struct ComponentRendererProps {
 #[component]
 pub fn ComponentRenderer(props: ComponentRendererProps) -> Element {
     let node = props.node.clone();
-    
+
     // ---- UNCONDITIONAL HOOKS (must all run before any early returns) ----
     let data_state = use_context::<GlobalDataState>().0;
     let local_item_signal = use_context::<RepeaterItemState>().0;
     let local_item = local_item_signal.read().clone();
     let parent_is_flow = use_context::<ParentLayoutContext>().0;
 
-    let is_flow_container = matches!(node.component_type.as_str(), "Flex" | "Grid" | "Stack");
-    let child_is_flow = node.id != "root" && (
+    let child_is_flow = if node.id == "root" {
         node.layout_mode != crate::models::LayoutMode::Absolute
-        || is_flow_container
-    );
+    } else {
+        true
+    };
     use_context_provider(|| ParentLayoutContext(child_is_flow));
     // ---- END UNCONDITIONAL HOOKS ----
 
@@ -430,11 +1333,17 @@ pub fn ComponentRenderer(props: ComponentRendererProps) -> Element {
         return rsx! {};
     }
 
-    let repeater_enabled = node.props.extra.get("repeaterEnabled")
+    let repeater_enabled = node
+        .props
+        .extra
+        .get("repeaterEnabled")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| node.component_type == "Repeater");
 
-    let repeater_ds = node.props.extra.get("repeaterDataSource")
+    let repeater_ds = node
+        .props
+        .extra
+        .get("repeaterDataSource")
         .and_then(|v| v.as_str())
         .or_else(|| node.props.repeater_data.as_deref())
         .unwrap_or("");
@@ -444,38 +1353,58 @@ pub fn ComponentRenderer(props: ComponentRendererProps) -> Element {
         if path.starts_with("data.") {
             path = path[5..].to_string();
         }
-        
+
         let global_data = data_state.read();
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
-            "Repeater check: path = '{}', global_data = {:?}", path, *global_data
+            "Repeater check: path = '{}', global_data = {:?}",
+            path, *global_data
         )));
         let items_opt = resolve_array_path(&global_data, &path);
         #[cfg(target_arch = "wasm32")]
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
-            "Repeater resolved items count: {:?}", items_opt.as_ref().map(|v| v.len())
+            "Repeater resolved items count: {:?}",
+            items_opt.as_ref().map(|v| v.len())
         )));
-        
+
         if let Some(items) = items_opt {
-            let columns = node.props.extra.get("repeaterColumns")
+            let columns = node
+                .props
+                .extra
+                .get("repeaterColumns")
                 .and_then(|v| {
-                    v.as_u64().or_else(|| {
-                        v.as_str().and_then(|s| s.parse::<u64>().ok())
-                    })
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
                 })
                 .unwrap_or(1) as usize;
-            
-            let gap = node.props.extra.get("repeaterGap")
+
+            let gap = node
+                .props
+                .extra
+                .get("repeaterGap")
                 .and_then(|v| v.as_str())
                 .unwrap_or("12px");
-            
+
             let mut container_styles = String::new();
-            
-            let active_bp = props.active_breakpoint.clone().unwrap_or_else(|| "desktop".to_string());
+
+            let active_bp = props
+                .active_breakpoint
+                .clone()
+                .unwrap_or_else(|| "desktop".to_string());
             let active_placement = match active_bp.as_str() {
-                "tablet" => node.placement_tablet.clone().or_else(|| node.placement.clone()),
-                "mobile" => node.placement_mobile.clone().or_else(|| node.placement_tablet.clone()).or_else(|| node.placement.clone()),
-                _ => node.placement_desktop.clone().or_else(|| node.placement.clone()),
+                "tablet" => node
+                    .placement_tablet
+                    .clone()
+                    .or_else(|| node.placement.clone()),
+                "mobile" => node
+                    .placement_mobile
+                    .clone()
+                    .or_else(|| node.placement_tablet.clone())
+                    .or_else(|| node.placement.clone()),
+                _ => node
+                    .placement_desktop
+                    .clone()
+                    .or_else(|| node.placement.clone()),
             };
 
             if let Some(ref p) = active_placement {
@@ -595,7 +1524,7 @@ fn RepeaterItemWrapper(
 #[component]
 #[allow(unused_variables)]
 pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
-    let node = props.node;
+    let mut node = props.node;
     let selected_id = props.selected_id;
     let on_select = props.on_select;
     let on_drop = props.on_drop;
@@ -605,22 +1534,32 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
     let active_breakpoint = props.active_breakpoint.clone();
 
     // Pull dynamic states from context providers
-    let data_state = use_context::<GlobalDataState>().0;
+    let mut data_state = use_context::<GlobalDataState>().0;
     let local_item_sig = use_context::<RepeaterItemState>().0;
     let local_item = local_item_sig.read().clone();
+    let global_data_snapshot = data_state.read().clone();
+    if let Some(bound_value) =
+        resolve_node_bind_value(&node, local_item.as_ref(), &global_data_snapshot)
+    {
+        apply_bound_value_to_node(&mut node, &bound_value);
+    }
 
-    let is_editor = selected_id.is_some() && on_select.is_some() && on_drop.is_some() && on_delete.is_some();
+    let is_editor =
+        selected_id.is_some() && on_select.is_some() && on_drop.is_some() && on_delete.is_some();
     let is_sel = if is_editor {
         selected_id.unwrap().read().as_ref() == Some(&node.id)
     } else {
         false
     };
-    let border_outline = if is_sel { "2px solid #3b82f6" } else { "1px dashed rgba(59, 130, 246, 0.15)" };
+    let border_outline = if is_sel {
+        "2px solid #3b82f6"
+    } else {
+        "1px dashed rgba(59, 130, 246, 0.15)"
+    };
 
     let page_layout_mode = use_context::<PageLayoutModeContext>().0;
-    let is_flow_layout = props.is_repeater_child || (
-        props.is_flow_context && page_layout_mode != crate::models::LayoutMode::Absolute
-    );
+    let is_flow_layout =
+        should_render_as_flow_layout(&node, props.is_repeater_child, props.is_flow_context);
 
     let max_bottom = if !node.children.is_empty() {
         calculate_freeform_extent(&node.children)
@@ -646,7 +1585,11 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 map.remove("height");
             }
             strip_guide_borders(&mut map, &node.component_type);
-            crate::models::NodeProps { style: Some(map), ..Default::default() }.to_style_string()
+            crate::models::NodeProps {
+                style: Some(map),
+                ..Default::default()
+            }
+            .to_style_string()
         } else {
             let mut s = if let Some(mb) = max_bottom {
                 format!("min-height:{:.0}px;", mb)
@@ -669,7 +1612,11 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 map.remove("height");
             }
             strip_guide_borders(&mut map, &node.component_type);
-            crate::models::NodeProps { style: Some(map), ..Default::default() }.to_style_string()
+            crate::models::NodeProps {
+                style: Some(map),
+                ..Default::default()
+            }
+            .to_style_string()
         } else {
             if let Some(mb) = max_bottom {
                 format!("min-height:{:.0}px;", mb)
@@ -682,9 +1629,19 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
 
     let active_bp = use_context::<ActiveBreakpointContext>().0.read().clone();
     let active_placement = match active_bp.as_str() {
-        "tablet" => node.placement_tablet.clone().or_else(|| node.placement.clone()),
-        "mobile" => node.placement_mobile.clone().or_else(|| node.placement_tablet.clone()).or_else(|| node.placement.clone()),
-        _ => node.placement_desktop.clone().or_else(|| node.placement.clone()),
+        "tablet" => node
+            .placement_tablet
+            .clone()
+            .or_else(|| node.placement.clone()),
+        "mobile" => node
+            .placement_mobile
+            .clone()
+            .or_else(|| node.placement_tablet.clone())
+            .or_else(|| node.placement.clone()),
+        _ => node
+            .placement_desktop
+            .clone()
+            .or_else(|| node.placement.clone()),
     };
 
     if is_editor {
@@ -716,7 +1673,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 let has_h = style_map.contains_key("height");
                 let w_inner = if has_w { "100%" } else { "auto" };
                 let h_inner = if has_h { "100%" } else { "auto" };
-                
+
                 // For the inner element content, force it to fill the absolute wrapper only if dimensions are specified
                 styles = format!("position: relative; width: {}; height: {}; box-sizing: border-box; margin: 0; display: block;", w_inner, h_inner);
                 if let Some(bg) = style_map.get("backgroundColor") {
@@ -748,13 +1705,22 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
         if !is_flow_layout {
             if let Some(ref p) = active_placement {
                 if node.id != "root" {
-                    let has_top = node.props.style.as_ref()
+                    let has_top = node
+                        .props
+                        .style
+                        .as_ref()
                         .map(|s| s.contains_key("top") || s.contains_key("Top"))
                         .unwrap_or(false);
-                    let has_left = node.props.style.as_ref()
+                    let has_left = node
+                        .props
+                        .style
+                        .as_ref()
                         .map(|s| s.contains_key("left") || s.contains_key("Left"))
                         .unwrap_or(false);
-                    let has_position = node.props.style.as_ref()
+                    let has_position = node
+                        .props
+                        .style
+                        .as_ref()
                         .map(|s| s.contains_key("position") || s.contains_key("Position"))
                         .unwrap_or(false);
 
@@ -780,14 +1746,18 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
 
     let element_content = match node.component_type.as_str() {
         "Flex" => {
-            let dir = node.props.direction.clone().unwrap_or_else(|| "row".to_string());
+            let dir = node
+                .props
+                .direction
+                .clone()
+                .unwrap_or_else(|| "row".to_string());
             let base_style = if node.id == "root" {
                 "position: relative; display: flex; box-sizing: border-box; overflow: auto; width: 100%; min-height: 100vh; padding: 24px;"
             } else {
                 "display: flex; box-sizing: border-box;"
             };
             let flex_style = format!("flex-direction: {}; {} {}", dir, styles, base_style);
-            
+
             let actions = node.on_click.clone();
             let has_actions = !actions.is_empty();
 
@@ -818,10 +1788,14 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Card" => {
-            let title = node.props.title.clone().unwrap_or_else(|| "Card Title".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Card Title".to_string());
             let base_style = "position: relative; background-color: #ffffff; border-radius: var(--radius, 12px); padding: 20px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 12px;";
             let card_style = format!("{} {}", base_style, styles);
 
@@ -861,33 +1835,33 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "DrawerPanel" => rsx! {
-                Hooked_DrawerPanel {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete,
-                    on_resize_start,
-                    on_drag_start
-                        }
-                    },
+        Hooked_DrawerPanel {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete,
+            on_resize_start,
+            on_drag_start
+                }
+            },
 
         "Modal" => rsx! {
-                Hooked_Modal {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete,
-                    on_resize_start,
-                    on_drag_start
-                        }
-                    },
+        Hooked_Modal {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete,
+            on_resize_start,
+            on_drag_start
+                }
+            },
 
         "Text" => {
             let content = if let Some(ref bind_expr) = node.props.bind {
@@ -897,25 +1871,31 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 let raw_content = node.props.content.clone().unwrap_or_default();
                 resolve_string_templates(&raw_content, local_item.as_ref(), &data_state.read())
             };
-            let variant = node.props.variant.clone().unwrap_or_else(|| "p".to_string());
-            
+            let variant = node
+                .props
+                .variant
+                .clone()
+                .unwrap_or_else(|| "p".to_string());
+
             let base_style = "font-family: 'Outfit', sans-serif; margin: 0; line-height: 1.6;";
             let text_style = format!("{} {}", base_style, styles);
 
             match variant.as_str() {
                 "span" => rsx! { span { id: "{node.id}", style: "{text_style}", "{content}" } },
                 "div" => rsx! { div { id: "{node.id}", style: "{text_style}", "{content}" } },
-                "b" | "strong" => rsx! { strong { id: "{node.id}", style: "{text_style}", "{content}" } },
-                _ => rsx! { p { id: "{node.id}", style: "{text_style}", "{content}" } }
+                "b" | "strong" => {
+                    rsx! { strong { id: "{node.id}", style: "{text_style}", "{content}" } }
+                }
+                _ => rsx! { p { id: "{node.id}", style: "{text_style}", "{content}" } },
             }
-        },
+        }
 
         "Heading" => {
             let raw_text = node.props.text.clone().unwrap_or_default();
             let text = resolve_string_templates(&raw_text, local_item.as_ref(), &data_state.read());
             let level = node.props.level.unwrap_or(1);
             let heading_style = format!("font-family: 'Outfit', sans-serif; color: var(--primary, #030213); font-weight: 700; margin: 0; {}", styles);
-            
+
             match level {
                 1 => rsx! { h1 { id: "{node.id}", style: "{heading_style}", "{text}" } },
                 2 => rsx! { h2 { id: "{node.id}", style: "{heading_style}", "{text}" } },
@@ -924,12 +1904,24 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 5 => rsx! { h5 { id: "{node.id}", style: "{heading_style}", "{text}" } },
                 _ => rsx! { h6 { id: "{node.id}", style: "{heading_style}", "{text}" } },
             }
-        },
+        }
 
         "Alert" => {
-            let variant = node.props.variant.clone().unwrap_or_else(|| "info".to_string());
-            let title = node.props.title.clone().unwrap_or_else(|| "Notice".to_string());
-            let message = node.props.message.clone().unwrap_or_else(|| "Alert details message.".to_string());
+            let variant = node
+                .props
+                .variant
+                .clone()
+                .unwrap_or_else(|| "info".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Notice".to_string());
+            let message = node
+                .props
+                .message
+                .clone()
+                .unwrap_or_else(|| "Alert details message.".to_string());
 
             let (bg, border, text_color, icon) = match variant.as_str() {
                 "success" => ("#f0fdf4", "#bbf7d0", "#166534", "✅"),
@@ -953,11 +1945,19 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "StatusBadge" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "Active".to_string());
-            let variant = node.props.variant.clone().unwrap_or_else(|| "success".to_string());
+            let label = node
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| "Active".to_string());
+            let variant = node
+                .props
+                .variant
+                .clone()
+                .unwrap_or_else(|| "success".to_string());
 
             let (bg, text_color) = match variant.as_str() {
                 "error" | "failed" => ("#fee2e2", "#991b1b"),
@@ -976,7 +1976,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     "{label}"
                 }
             }
-        },
+        }
 
         "Breadcrumbs" => {
             let base_style = "display: flex; align-items: center; gap: 8px; font-family: 'Outfit', sans-serif; font-size: 13px; color: #64748b;";
@@ -993,12 +1993,34 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     span { style: "color: #0f172a; font-weight: 600;", "Visualizer" }
                 }
             }
-        },
+        }
 
         "Input" | "SearchInput" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "Label".to_string());
-            let placeholder = node.props.placeholder.clone().unwrap_or_else(|| "Enter value...".to_string());
+            let label = node
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| "Label".to_string());
+            let placeholder = node
+                .props
+                .placeholder
+                .clone()
+                .unwrap_or_else(|| "Enter value...".to_string());
             let is_search = node.component_type == "SearchInput";
+            let has_bind = node
+                .props
+                .bind
+                .as_ref()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let input_value = node
+                .props
+                .extra
+                .get("__boundValue")
+                .map(json_value_to_display_string)
+                .unwrap_or_default();
+            let input_name = form_control_name(&node);
+            let bind_node = node.clone();
 
             let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
             let input_container_style = format!("{} {}", base_style, styles);
@@ -1018,19 +2040,47 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                         }
                         input {
                             r#type: "text",
+                            name: "{input_name}",
                             placeholder: "{placeholder}",
+                            value: if has_bind { input_value.clone() },
                             style: if is_search { "padding: 10px 12px 10px 36px;" } else { "padding: 10px 12px;" },
                             class: "styled-field",
                             style: "width: 100%; border-radius: var(--radius, 8px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #1e293b; outline: none; box-sizing: border-box; font-size: 14px;",
+                            oninput: move |evt| {
+                                let mut data = data_state.write();
+                                set_node_bind_value(&bind_node, &mut data, serde_json::Value::String(evt.value()));
+                            },
                         }
                     }
                 }
             }
-        },
+        }
 
         "Textarea" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "Comment".to_string());
-            let placeholder = node.props.placeholder.clone().unwrap_or_else(|| "Enter content here...".to_string());
+            let label = node
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| "Comment".to_string());
+            let placeholder = node
+                .props
+                .placeholder
+                .clone()
+                .unwrap_or_else(|| "Enter content here...".to_string());
+            let has_bind = node
+                .props
+                .bind
+                .as_ref()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let textarea_value = node
+                .props
+                .extra
+                .get("__boundValue")
+                .map(json_value_to_display_string)
+                .unwrap_or_default();
+            let textarea_name = form_control_name(&node);
+            let bind_node = node.clone();
 
             let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
             let area_container_style = format!("{} {}", base_style, styles);
@@ -1041,65 +2091,78 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{area_container_style}",
                     label { style: "font-weight: 600; color: #475569;", "{label}" }
                     textarea {
+                        name: "{textarea_name}",
                         placeholder: "{placeholder}",
+                        value: if has_bind { textarea_value.clone() },
                         style: "padding: 10px 12px; min-height: 80px; border-radius: var(--radius, 8px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #1e293b; outline: none; font-family: inherit; font-size: 14px; box-sizing: border-box; resize: vertical;",
+                        oninput: move |evt| {
+                            let mut data = data_state.write();
+                            set_node_bind_value(&bind_node, &mut data, serde_json::Value::String(evt.value()));
+                        },
                     }
                 }
             }
-        },
+        }
 
-        "Select" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "Select Option".to_string());
-
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
-            let select_container_style = format!("{} {}", base_style, styles);
-
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{select_container_style}",
-                    label { style: "font-weight: 600; color: #475569;", "{label}" }
-                    select {
-                        style: "padding: 10px 12px; border-radius: var(--radius, 8px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #1e293b; outline: none; font-family: inherit; font-size: 14px; cursor: pointer; box-sizing: border-box; width: 100%;",
-                        option { "Option A" }
-                        option { "Option B" }
-                        option { "Option C" }
-                    }
-                }
+        "Select" => rsx! {
+            Hooked_Select {
+                node: node.clone(),
+                styles: styles.clone(),
+                selected_id,
+                on_select,
+                on_drop,
+                on_delete
             }
         },
 
         "Checkbox" => rsx! {
-                Hooked_Checkbox {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_Checkbox {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Toggle" => rsx! {
-                Hooked_Toggle {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_Toggle {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Form" => {
             let base_style = "display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; width: 100%;";
             let form_style = format!("{} {}", base_style, styles);
+            let actions = node.on_submit.clone();
+            let bind = node.props.bind.clone();
+            let submit_item = local_item.clone();
 
             rsx! {
                 form {
                     id: "{node.id}",
                     style: "{form_style}",
-                    onsubmit: move |e| e.prevent_default(),
+                    onsubmit: move |e| {
+                        e.prevent_default();
+                        let form_values = form_event_values_to_json(e.values());
+                        if let Some(bind_path) = bind.as_deref() {
+                            let mut data = data_state.write();
+                            set_json_value_at_path(&mut data, bind_path, form_values.clone());
+                        }
+                        if !actions.is_empty() {
+                            let acts = actions.clone();
+                            let scope = form_submit_scope(form_values, submit_item.clone());
+                            spawn(async move {
+                                execute_actions(acts, data_state, Some(scope)).await;
+                            });
+                        }
+                    },
                     for child in node.children {
                         ComponentRenderer {
                             node: child,
@@ -1113,43 +2176,47 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "SignaturePad" => rsx! {
-                Hooked_SignaturePad {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_SignaturePad {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "MultiSelectDropdown" => rsx! {
-                Hooked_MultiSelectDropdown {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_MultiSelectDropdown {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Button" => rsx! {
-                Hooked_Button {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_Button {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "nav-button" => {
-            let text = node.props.text.clone().unwrap_or_else(|| "Link".to_string());
+            let text = node
+                .props
+                .text
+                .clone()
+                .unwrap_or_else(|| "Link".to_string());
             let target = node.props.target.clone().unwrap_or_else(|| "#".to_string());
 
             let base_style = "display: inline-flex; align-items: center; font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; color: #475569; transition: color 0.15s; padding: 6px 12px; border-radius: 6px;";
@@ -1163,20 +2230,20 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     "{text}"
                 }
             }
-        },
+        }
 
         "Tabs" => rsx! {
-                Hooked_Tabs {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete,
-                    on_resize_start,
-                    on_drag_start
-                        }
-                    },
+        Hooked_Tabs {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete,
+            on_resize_start,
+            on_drag_start
+                }
+            },
 
         "Tab" => {
             // Re-render handled inline by Tabs container wrapper.
@@ -1186,14 +2253,20 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "display: none;",
                 }
             }
-        },
+        }
 
         "Table" => {
             // Static table: columns is Vec<String>, rows is Vec<HashMap>
-            let columns: Vec<String> = node.props.columns.clone()
+            let columns: Vec<String> = node
+                .props
+                .columns
+                .clone()
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
-            let rows: Vec<std::collections::HashMap<String, serde_json::Value>> = node.props.rows.clone()
+            let rows: Vec<std::collections::HashMap<String, serde_json::Value>> = node
+                .props
+                .rows
+                .clone()
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
             let base_style = "border-collapse: collapse; text-align: left; background-color: #ffffff; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid var(--border, rgba(0,0,0,0.08)); font-family: 'Outfit', sans-serif; font-size: 14px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);";
@@ -1227,7 +2300,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "DynamicTable" => rsx! {
             Hooked_DynamicTable {
@@ -1243,22 +2316,39 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
         },
 
         "HierarchyTable" => rsx! {
-                Hooked_HierarchyTable {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_HierarchyTable {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "DatePicker" | "TimePicker" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "Select Option".to_string());
+            let label = node
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| "Select Option".to_string());
             let placeholder = node.props.placeholder.clone().unwrap_or_default();
             let is_date = node.component_type == "DatePicker";
             let input_type = if is_date { "date" } else { "time" };
             let required = node.props.required.unwrap_or(false);
+            let has_bind = node
+                .props
+                .bind
+                .as_ref()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false);
+            let input_value = node
+                .props
+                .extra
+                .get("__boundValue")
+                .map(json_value_to_display_string)
+                .unwrap_or_default();
+            let bind_node = node.clone();
 
             let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
             let container_style = format!("{} {}", base_style, styles);
@@ -1280,36 +2370,59 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                             r#type: "{input_type}",
                             placeholder: "{placeholder}",
                             required: required,
+                            value: if has_bind { input_value.clone() },
                             style: "padding: 12px 14px; border-radius: var(--radius, 10px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #1e293b; outline: none; transition: all 0.2s; width: 100%; box-sizing: border-box; font-family: inherit; font-size: 14px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);",
+                            oninput: move |evt| {
+                                let mut data = data_state.write();
+                                set_node_bind_value(&bind_node, &mut data, serde_json::Value::String(evt.value()));
+                            },
                         }
                     }
                 }
             }
-        },
+        }
 
         "TimeViewer" => rsx! {
-                Hooked_TimeViewer {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_TimeViewer {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Chart" => {
-            let chart_type = node.props.chart_type.clone().unwrap_or_else(|| "bar".to_string());
+            let chart_type = node
+                .props
+                .chart_type
+                .clone()
+                .unwrap_or_else(|| "bar".to_string());
 
             if chart_type == "progressbar" {
                 let data_val = node.props.data.clone().unwrap_or(serde_json::Value::Null);
-                let label = data_val.get("label").and_then(|v| v.as_str()).unwrap_or("Progress").to_string();
-                let val = data_val.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let max = data_val.get("max").and_then(|v| v.as_f64()).unwrap_or(100.0);
+                let label = data_val
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Progress")
+                    .to_string();
+                let val = data_val
+                    .get("value")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let max = data_val
+                    .get("max")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(100.0);
                 let pct = if max > 0.0 { (val / max) * 100.0 } else { 0.0 };
 
                 let has_height = styles.contains("height:") || styles.contains("Height:");
-                let height_style = if has_height { "" } else { "height: 320px; min-height: 320px;" };
+                let height_style = if has_height {
+                    ""
+                } else {
+                    "height: 320px; min-height: 320px;"
+                };
 
                 let bar_style = format!(
                     "position: relative; width: 100%; {} font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; justify-content: center; padding: 24px; box-sizing: border-box; {}",
@@ -1339,23 +2452,47 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 };
             }
 
-            let chart_data: Vec<crate::models::ChartItem> = node.props.data.clone()
+            let chart_data: Vec<crate::models::ChartItem> = node
+                .props
+                .data
+                .clone()
                 .and_then(|d| serde_json::from_value(d).ok())
-                .unwrap_or_else(|| vec![
-                    crate::models::ChartItem { name: Some("Jan".to_string()), value: Some(40.0) },
-                    crate::models::ChartItem { name: Some("Feb".to_string()), value: Some(60.0) },
-                    crate::models::ChartItem { name: Some("Mar".to_string()), value: Some(55.0) },
-                    crate::models::ChartItem { name: Some("Apr".to_string()), value: Some(80.0) },
-                ]);
+                .unwrap_or_else(|| {
+                    vec![
+                        crate::models::ChartItem {
+                            name: Some("Jan".to_string()),
+                            value: Some(40.0),
+                        },
+                        crate::models::ChartItem {
+                            name: Some("Feb".to_string()),
+                            value: Some(60.0),
+                        },
+                        crate::models::ChartItem {
+                            name: Some("Mar".to_string()),
+                            value: Some(55.0),
+                        },
+                        crate::models::ChartItem {
+                            name: Some("Apr".to_string()),
+                            value: Some(80.0),
+                        },
+                    ]
+                });
 
             let has_height = styles.contains("height:") || styles.contains("Height:");
-            let height_style = if has_height { "" } else { "height: 320px; min-height: 320px;" };
+            let height_style = if has_height {
+                ""
+            } else {
+                "height: 320px; min-height: 320px;"
+            };
             let base_style = format!("background-color: #ffffff; border-radius: var(--radius, 14px); padding: 20px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,0.04); display: flex; flex-direction: column; overflow: hidden; {}", height_style);
             let chart_style = format!("{} {}", base_style, styles);
 
-            let max_val = chart_data.iter().map(|item| item.value.unwrap_or(0.0)).fold(0.0f64, |a, b| a.max(b));
+            let max_val = chart_data
+                .iter()
+                .map(|item| item.value.unwrap_or(0.0))
+                .fold(0.0f64, |a, b| a.max(b));
             let max_val = if max_val == 0.0 { 100.0 } else { max_val };
-            
+
             let svg_w = 460.0;
             let svg_h = 220.0;
             let margin_left = 40.0;
@@ -1378,7 +2515,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                         height: "100%",
                         view_box: "0 0 {svg_w} {svg_h}",
                         style: "flex-grow: 1; overflow: visible;",
-                        
+
                         defs {
                             linearGradient {
                                 id: "chart-bar-grad",
@@ -1431,7 +2568,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                             {
                                 let bar_width = (chart_w / chart_data.len() as f64) * 0.6;
                                 let col_width = chart_w / chart_data.len() as f64;
-                                
+
                                 rsx! {
                                     g {
                                         for (i, item) in chart_data.iter().enumerate() {
@@ -1441,7 +2578,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                 let bar_h = (val / max_val) * chart_h;
                                                 let x_pos = margin_left + (i as f64 * col_width) + (col_width - bar_width) / 2.0;
                                                 let y_pos = margin_top + chart_h - bar_h;
-                                                
+
                                                 rsx! {
                                                     rect {
                                                         x: "{x_pos}",
@@ -1507,7 +2644,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                 let name = item.name.clone().unwrap_or_default();
                                                 let x = margin_left + (i as f64 * col_width);
                                                 let y = margin_top + chart_h - ((val / max_val) * chart_h);
-                                                
+
                                                 rsx! {
                                                     circle { cx: "{x}", cy: "{y}", r: "4", fill: "#ffffff", stroke: "#3b82f6", stroke_width: "2" }
                                                     text {
@@ -1537,11 +2674,20 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "GaugeChart" => {
-            let title = node.props.title.clone().unwrap_or_else(|| "System Load".to_string());
-            let value = node.props.extra.get("value").and_then(|v| v.as_f64()).unwrap_or(72.0);
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "System Load".to_string());
+            let value = node
+                .props
+                .extra
+                .get("value")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(72.0);
 
             // Needle angle calculation
             let angle = -90.0 + (value / 100.0) * 180.0;
@@ -1589,10 +2735,15 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     span { style: "font-size: 20px; font-weight: 800; color: #1e293b; margin-top: -6px;", "{value}%" }
                 }
             }
-        },
+        }
 
         "ProgressRing" => {
-            let value = node.props.extra.get("value").and_then(|v| v.as_f64()).unwrap_or(65.0);
+            let value = node
+                .props
+                .extra
+                .get("value")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(65.0);
             let circumference = 2.0 * std::f64::consts::PI * 34.0;
             let offset = circumference - (value / 100.0) * circumference;
 
@@ -1635,12 +2786,26 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "TargetKpiCard" => {
-            let title = node.props.title.clone().unwrap_or_else(|| "Conversion Rate".to_string());
-            let actual = node.props.extra.get("actual").and_then(|v| v.as_str()).unwrap_or("4.8%");
-            let target = node.props.extra.get("target").and_then(|v| v.as_str()).unwrap_or("5.0%");
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Conversion Rate".to_string());
+            let actual = node
+                .props
+                .extra
+                .get("actual")
+                .and_then(|v| v.as_str())
+                .unwrap_or("4.8%");
+            let target = node
+                .props
+                .extra
+                .get("target")
+                .and_then(|v| v.as_str())
+                .unwrap_or("5.0%");
 
             let base_style = "background-color: #ffffff; border-radius: 12px; padding: 18px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; width: 200px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
             let tk_style = format!("{} {}", base_style, styles);
@@ -1658,11 +2823,21 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Image" => {
-            let src = node.props.extra.get("src").and_then(|v| v.as_str()).unwrap_or("https://picsum.photos/400/250");
-            let alt = node.props.extra.get("alt").and_then(|v| v.as_str()).unwrap_or("visualizer-asset");
+            let src = node
+                .props
+                .extra
+                .get("src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://picsum.photos/400/250");
+            let alt = node
+                .props
+                .extra
+                .get("alt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("visualizer-asset");
 
             let base_style = "max-width: 100%; border-radius: var(--radius, 10px); object-fit: cover; display: block; border: 1px solid rgba(0,0,0,0.05);";
             let img_style = format!("{} {}", base_style, styles);
@@ -1675,10 +2850,15 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{img_style}",
                 }
             }
-        },
+        }
 
         "Video" => {
-            let src = node.props.extra.get("src").and_then(|v| v.as_str()).unwrap_or("https://www.w3schools.com/html/mov_bbb.mp4");
+            let src = node
+                .props
+                .extra
+                .get("src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://www.w3schools.com/html/mov_bbb.mp4");
 
             let base_style = "max-width: 100%; border-radius: var(--radius, 12px); overflow: hidden; background-color: #0f172a; box-shadow: 0 10px 25px rgba(0,0,0,0.08); display: block;";
             let video_style = format!("{} {}", base_style, styles);
@@ -1691,10 +2871,15 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{video_style}",
                 }
             }
-        },
+        }
 
         "Audio" => {
-            let src = node.props.extra.get("src").and_then(|v| v.as_str()).unwrap_or("https://www.w3schools.com/html/horse.mp3");
+            let src = node
+                .props
+                .extra
+                .get("src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://www.w3schools.com/html/horse.mp3");
 
             let base_style = "max-width: 100%; border-radius: var(--radius, 8px); padding: 8px; background-color: #f8fafc; border: 1px solid #e2e8f0; display: inline-flex; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.02);";
             let audio_style = format!("{} {}", base_style, styles);
@@ -1707,57 +2892,57 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{audio_style}",
                 }
             }
-        },
+        }
 
         "ImageGallery" => rsx! {
-                Hooked_ImageGallery {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_ImageGallery {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "ImageWithAnnotations" => rsx! {
-                Hooked_ImageWithAnnotations {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_ImageWithAnnotations {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "PlaylistPlayer" => rsx! {
-                Hooked_PlaylistPlayer {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_PlaylistPlayer {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "KanbanBoard" => rsx! {
-                Hooked_KanbanBoard {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_KanbanBoard {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Timeline" => {
             let events = vec![
                 ("3:00 PM", "Security check initialized", "Completed"),
                 ("3:45 PM", "File annotations merged", "Active"),
-                ("4:00 PM", "Production build scheduled", "Pending")
+                ("4:00 PM", "Production build scheduled", "Pending"),
             ];
 
             let base_style = "display: flex; flex-direction: column; font-family: 'Outfit', sans-serif; gap: 16px;";
@@ -1800,24 +2985,28 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Chat" | "ChatViewer" => rsx! {
-                Hooked_ChatViewer {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_ChatViewer {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "ActivityFeed" => {
             let feeds = vec![
                 ("Atushi17", "pushed 2 commits to main branch", "3 min ago"),
                 ("Sarah", "updated Accordion state styles", "15 min ago"),
-                ("CI System", "wasm pipeline compilation complete", "1 hr ago")
+                (
+                    "CI System",
+                    "wasm pipeline compilation complete",
+                    "1 hr ago",
+                ),
             ];
 
             let base_style = "background-color: #ffffff; border-radius: 12px; padding: 18px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
@@ -1848,23 +3037,24 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "CommentSection" => rsx! {
-                Hooked_CommentSection {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_CommentSection {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "CodeSandbox" => {
             let base_style = "background-color: #0f172a; border-radius: 12px; padding: 14px; border: 1px solid rgba(255,255,255,0.05); font-family: monospace; display: flex; flex-direction: column; gap: 10px; width: 340px; box-shadow: 0 10px 20px rgba(0,0,0,0.15); color: #e2e8f0; font-size: 12px;";
             let box_style = format!("{} {}", base_style, styles);
-            let sandbox_code = "fn main() {\n    println!(\"Hello Dioxus WASM Layout Engine!\");\n}";
+            let sandbox_code =
+                "fn main() {\n    println!(\"Hello Dioxus WASM Layout Engine!\");\n}";
 
             rsx! {
                 div {
@@ -1881,7 +3071,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "QrCodeGenerator" => {
             let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 160px; box-shadow: 0 4px 12px rgba(0,0,0,0.02);";
@@ -1908,29 +3098,29 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "StarRating" => rsx! {
-                Hooked_StarRating {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_StarRating {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "FileUpload" | "FolderUpload" => rsx! {
-                Hooked_FolderUpload {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_FolderUpload {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "DynamicCardGrid" => {
             let base_style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; width: 100%; box-sizing: border-box;";
@@ -1953,90 +3143,97 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Accordion" => rsx! {
-                Hooked_Accordion {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_Accordion {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "WizardStepper" => rsx! {
-                Hooked_WizardStepper {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_WizardStepper {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "TagInput" => rsx! {
-                Hooked_TagInput {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_TagInput {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "OtpInput" => rsx! {
-                Hooked_OtpInput {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_OtpInput {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "ColorPicker" => rsx! {
-                Hooked_ColorPicker {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_ColorPicker {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "RichTextEditor" => rsx! {
-                Hooked_RichTextEditor {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_RichTextEditor {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Layout" => {
-            let layout_type = node.props.extra.get("layoutType")
+            let layout_type = node
+                .props
+                .extra
+                .get("layoutType")
                 .or_else(|| node.props.extra.get("layout_type"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("block")
                 .to_lowercase();
-            
+
             let (display_style, flex_dir) = match layout_type.as_str() {
                 "grid" => ("display: grid;", String::new()),
                 "flex" => {
-                    let dir = node.props.direction.clone().unwrap_or_else(|| "column".to_string());
+                    let dir = node
+                        .props
+                        .direction
+                        .clone()
+                        .unwrap_or_else(|| "column".to_string());
                     ("display: flex;", format!("flex-direction: {};", dir))
-                },
+                }
                 _ => ("display: block;", String::new()),
             };
-            
+
             let base_style = format!(
                 "{} {} width: 100%; box-sizing: border-box; position: relative;",
                 display_style, flex_dir
@@ -2072,7 +3269,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Box" => {
             let base_style = "box-sizing: border-box; display: block;";
@@ -2107,7 +3304,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Divider" => {
             let divider_style = format!("border: 0; border-top: 1px solid rgba(0,0,0,0.08); margin: 16px 0; width: 100%; {}", styles);
@@ -2117,11 +3314,21 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{divider_style}",
                 }
             }
-        },
+        }
 
         "Grid" => {
-            let cols = node.props.extra.get("columnsCount").and_then(|v| v.as_u64()).unwrap_or(3);
-            let gap = node.props.extra.get("gap").and_then(|v| v.as_str()).unwrap_or("16px");
+            let cols = node
+                .props
+                .extra
+                .get("columnsCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3);
+            let gap = node
+                .props
+                .extra
+                .get("gap")
+                .and_then(|v| v.as_str())
+                .unwrap_or("16px");
             let grid_style = format!("display: grid; grid-template-columns: repeat({}, 1fr); gap: {}; width: 100%; box-sizing: border-box; {}", cols, gap, styles);
 
             let actions = node.on_click.clone();
@@ -2153,7 +3360,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Container" => {
             let base_style = "max-width: 1200px; margin: 0 auto; padding: 0 16px; width: 100%; box-sizing: border-box; display: block; position: relative;";
@@ -2188,11 +3395,22 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Stack" => {
-            let direction = node.props.extra.get("direction").and_then(|v| v.as_str()).unwrap_or("column");
-            let gap = node.props.extra.get("spacing").and_then(|v| v.as_str()).or_else(|| node.props.extra.get("gap").and_then(|v| v.as_str())).unwrap_or("12px");
+            let direction = node
+                .props
+                .extra
+                .get("direction")
+                .and_then(|v| v.as_str())
+                .unwrap_or("column");
+            let gap = node
+                .props
+                .extra
+                .get("spacing")
+                .and_then(|v| v.as_str())
+                .or_else(|| node.props.extra.get("gap").and_then(|v| v.as_str()))
+                .unwrap_or("12px");
             let stack_style = format!("display: flex; flex-direction: {}; gap: {}; width: 100%; box-sizing: border-box; {}", direction, gap, styles);
 
             let actions = node.on_click.clone();
@@ -2224,7 +3442,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "List" => {
             let base_style = "display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;";
@@ -2246,10 +3464,14 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Sidebar" => {
-            let title = node.props.title.clone().unwrap_or_else(|| "Navigation Sidebar".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Navigation Sidebar".to_string());
             let base_style = "width: 260px; height: 100vh; background-color: #0f172a; color: #ffffff; border-right: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; font-family: 'Outfit', sans-serif; box-sizing: border-box;";
             let sidebar_style = format!("{} {}", base_style, styles);
             rsx! {
@@ -2289,10 +3511,14 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Topbar" => {
-            let title = node.props.title.clone().unwrap_or_else(|| "Management Dashboard".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Management Dashboard".to_string());
             let base_style = "height: 64px; width: 100%; background-color: #ffffff; border-bottom: 1px solid rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-family: 'Outfit', sans-serif; box-sizing: border-box;";
             let topbar_style = format!("{} {}", base_style, styles);
             rsx! {
@@ -2319,7 +3545,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Aside" => {
             let base_style = "width: 300px; background-color: #f8fafc; border-left: 1px solid #e2e8f0; padding: 20px; display: flex; flex-direction: column; gap: 16px; font-family: 'Outfit', sans-serif; box-sizing: border-box;";
@@ -2341,64 +3567,119 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Bar" => {
-            let theme = node.props.extra.get("theme").and_then(|v| v.as_str()).unwrap_or("light").to_string();
-            
-            let nav_items = node.props.extra.get("items")
+            let theme = node
+                .props
+                .extra
+                .get("theme")
+                .and_then(|v| v.as_str())
+                .unwrap_or("light")
+                .to_string();
+
+            let nav_items = node
+                .props
+                .extra
+                .get("items")
                 .and_then(|v| v.as_array())
                 .cloned()
                 .unwrap_or_default();
 
-            let title = node.props.title.clone().or_else(|| {
-                node.props.extra.get("title")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-            }).unwrap_or_else(|| "Navigation".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .or_else(|| {
+                    node.props
+                        .extra
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| "Navigation".to_string());
 
-            let logo = node.props.extra.get("logo")
+            let logo = node
+                .props
+                .extra
+                .get("logo")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-                
-            let logo_position = node.props.extra.get("logoPosition")
+
+            let logo_position = node
+                .props
+                .extra
+                .get("logoPosition")
                 .and_then(|v| v.as_str())
                 .unwrap_or("inline")
                 .to_string();
-                
-            let logo_size = node.props.extra.get("logoSize")
+
+            let logo_size = node
+                .props
+                .extra
+                .get("logoSize")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as usize)
                 .unwrap_or_else(|| if logo_position == "top" { 48 } else { 20 });
 
-            let position = node.props.extra.get("position")
+            let position = node
+                .props
+                .extra
+                .get("position")
                 .and_then(|v| v.as_str())
                 .unwrap_or("top")
                 .to_lowercase();
-            let position = if position == "left" || position == "right" { position } else { "top".to_string() };
+            let position = if position == "left" || position == "right" {
+                position
+            } else {
+                "top".to_string()
+            };
             let is_top = position == "top";
-            
-            let width = node.props.extra.get("width")
+
+            let width = node
+                .props
+                .extra
+                .get("width")
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .or_else(|| node.props.style.as_ref().and_then(|style| style.get("width").cloned()))
+                .or_else(|| {
+                    node.props
+                        .style
+                        .as_ref()
+                        .and_then(|style| style.get("width").cloned())
+                })
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "250px".to_string());
-                
-            let height = node.props.style.as_ref()
+
+            let height = node
+                .props
+                .style
+                .as_ref()
                 .and_then(|style| style.get("height"))
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "64px".to_string());
 
-            let bg = if theme.eq_ignore_ascii_case("dark") { "#0a0f2e" } else { "#ffffff" };
-            let border_color = if theme.eq_ignore_ascii_case("dark") { "#2a3565" } else { "#e5e7eb" };
-            let text_color = if theme.eq_ignore_ascii_case("dark") { "#e2e8f0" } else { "#0f172a" };
+            let bg = if theme.eq_ignore_ascii_case("dark") {
+                "#0a0f2e"
+            } else {
+                "#ffffff"
+            };
+            let border_color = if theme.eq_ignore_ascii_case("dark") {
+                "#2a3565"
+            } else {
+                "#e5e7eb"
+            };
+            let text_color = if theme.eq_ignore_ascii_case("dark") {
+                "#e2e8f0"
+            } else {
+                "#0f172a"
+            };
 
-            let visible_items: Vec<serde_json::Value> = nav_items.into_iter().filter(|item| {
-                is_item_visible(item, &data_state.read(), local_item.as_ref())
-            }).collect();
-
+            let visible_items: Vec<serde_json::Value> = nav_items
+                .into_iter()
+                .filter(|item| is_item_visible(item, &data_state.read(), local_item.as_ref()))
+                .collect();
 
             let logo_min_width = if is_top { "12px" } else { "0" };
             let logo_min_height = if is_top { "0" } else { "12px" };
@@ -2412,7 +3693,11 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
             let menu_top = if is_top { "calc(100% + 6px)" } else { "auto" };
             let menu_left = if is_top { "0" } else { "auto" };
             let menu_width = if is_top { "max-content" } else { "100%" };
-            let menu_box_shadow = if is_top { "0 12px 24px rgba(15,23,42,0.12)" } else { "none" };
+            let menu_box_shadow = if is_top {
+                "0 12px 24px rgba(15,23,42,0.12)"
+            } else {
+                "none"
+            };
 
             let nav_style = format!(
                 "display: flex; flex-direction: {}; align-items: {}; justify-content: flex-start; gap: {}; padding: {}; height: {}; width: {}; min-width: {}; max-width: {}; background-color: {}; color: {}; border-bottom: {}; border-right: {}; border-left: {}; box-sizing: border-box; box-shadow: {}; overflow: visible; {}",
@@ -2437,7 +3722,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 nav {
                     id: "{node.id}",
                     style: "{nav_style}",
-                    
+
                     if !logo.is_empty() && !is_top && logo_position == "top" {
                         div {
                             style: "display: flex; justify-content: center; align-items: center; width: 100%; margin-bottom: 10px; padding: 4px 0;",
@@ -2504,7 +3789,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                         let src = resolve_string_templates(src_raw, local_item.as_ref(), &data_state.read());
                                         let size = item.get("size").and_then(|v| v.as_str()).unwrap_or("36");
                                         let initial = name.chars().next().unwrap_or('A').to_string();
-                                        
+
                                         rsx! {
                                             span {
                                                 key: "avatar-{index}",
@@ -2529,7 +3814,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                         let label = resolve_string_templates(label_raw, local_item.as_ref(), &data_state.read());
                                         let icon = item.get("icon").and_then(|v| v.as_str()).unwrap_or("ChevronDown").to_string();
                                         let menu_items = item.get("items").or_else(|| item.get("menuItems")).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-                                        
+
                                         rsx! {
                                             details {
                                                 key: "dropdown-{index}",
@@ -2554,7 +3839,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                             let icon = menu_item.get("icon").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                                             let actions = nav_item_actions(menu_item);
                                                             let local_item_click = local_item.clone();
-                                                            
+
                                                             rsx! {
                                                                 button {
                                                                     key: "dropdown-item-{sub_index}",
@@ -2594,7 +3879,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                         };
                                         let label_str = if label_raw.is_empty() { label_fallback } else { label_raw };
                                         let label = resolve_string_templates(label_str, local_item.as_ref(), &data_state.read());
-                                        
+
                                         let icon_raw = item.get("icon").and_then(|v| v.as_str()).unwrap_or("");
                                         let icon_fallback = match item.get("type").and_then(|v| v.as_str()).unwrap_or("nav").to_lowercase().as_str() {
                                             "login" => "LogIn",
@@ -2604,13 +3889,13 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                             _ => "",
                                         };
                                         let icon = if icon_raw.is_empty() { icon_fallback } else { icon_raw };
-                                        
+
                                         let content_mode = item.get("contentMode").and_then(|v| v.as_str()).unwrap_or("both").to_lowercase();
                                         let show_icon = !icon.is_empty() && content_mode != "text";
                                         let show_text = content_mode != "icon";
                                         let actions = nav_item_actions(&item);
                                         let local_item_click = local_item.clone();
-                                        
+
                                         rsx! {
                                             button {
                                                 key: "item-{index}",
@@ -2641,7 +3926,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "FilterBar" => {
             let base_style = "display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background-color: #f8fafc; padding: 12px 18px; border-radius: var(--radius, 10px); border: 1px solid #e2e8f0; width: 100%; box-sizing: border-box;";
@@ -2663,11 +3948,21 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Link" => {
-            let text = node.props.text.clone().or_else(|| node.props.content.clone()).unwrap_or_else(|| "Link Target".to_string());
-            let href = node.props.extra.get("href").and_then(|v| v.as_str()).unwrap_or("#");
+            let text = node
+                .props
+                .text
+                .clone()
+                .or_else(|| node.props.content.clone())
+                .unwrap_or_else(|| "Link Target".to_string());
+            let href = node
+                .props
+                .extra
+                .get("href")
+                .and_then(|v| v.as_str())
+                .unwrap_or("#");
             let base_style = "color: #3b82f6; font-weight: 600; text-decoration: none; cursor: pointer; transition: color 0.15s; font-family: 'Outfit', sans-serif;";
             let link_style = format!("{} {}", base_style, styles);
             rsx! {
@@ -2678,11 +3973,19 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     "{text}"
                 }
             }
-        },
+        }
 
         "Badge" => {
-            let label = node.props.label.clone().unwrap_or_else(|| "New".to_string());
-            let variant = node.props.variant.clone().unwrap_or_else(|| "info".to_string());
+            let label = node
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| "New".to_string());
+            let variant = node
+                .props
+                .variant
+                .clone()
+                .unwrap_or_else(|| "info".to_string());
             let (bg, text_color) = match variant.as_str() {
                 "success" => ("#dcfce7", "#166534"),
                 "warning" => ("#fef3c7", "#92400e"),
@@ -2698,12 +4001,22 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     "{label}"
                 }
             }
-        },
+        }
 
         "Avatar" => {
             let src = node.props.extra.get("src").and_then(|v| v.as_str());
-            let alt = node.props.extra.get("alt").and_then(|v| v.as_str()).unwrap_or("user avatar");
-            let fallback = node.props.extra.get("fallback").and_then(|v| v.as_str()).unwrap_or("U");
+            let alt = node
+                .props
+                .extra
+                .get("alt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("user avatar");
+            let fallback = node
+                .props
+                .extra
+                .get("fallback")
+                .and_then(|v| v.as_str())
+                .unwrap_or("U");
             let base_style = "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background-color: #e2e8f0; color: #475569; font-weight: 700; font-family: 'Outfit', sans-serif; overflow: hidden; border: 1px solid rgba(0,0,0,0.05); box-sizing: border-box;";
             let avatar_style = format!("{} {}", base_style, styles);
             rsx! {
@@ -2721,13 +4034,31 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Author" => {
-            let name = node.props.title.clone().unwrap_or_else(|| "Author Profile".to_string());
-            let subtitle = node.props.extra.get("role").and_then(|v| v.as_str()).unwrap_or("Lead Engineer");
-            let bio = node.props.content.clone().unwrap_or_else(|| "Contributing designer & system architect.".to_string());
-            let avatar_url = node.props.extra.get("avatarUrl").and_then(|v| v.as_str()).unwrap_or("https://picsum.photos/id/64/100");
+            let name = node
+                .props
+                .title
+                .clone()
+                .unwrap_or_else(|| "Author Profile".to_string());
+            let subtitle = node
+                .props
+                .extra
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Lead Engineer");
+            let bio = node
+                .props
+                .content
+                .clone()
+                .unwrap_or_else(|| "Contributing designer & system architect.".to_string());
+            let avatar_url = node
+                .props
+                .extra
+                .get("avatarUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://picsum.photos/id/64/100");
 
             let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; gap: 14px; align-items: flex-start; max-width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
             let author_style = format!("{} {}", base_style, styles);
@@ -2747,10 +4078,15 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Header" => {
-            let title = node.props.title.clone().or_else(|| node.props.text.clone()).unwrap_or_else(|| "Header Section".to_string());
+            let title = node
+                .props
+                .title
+                .clone()
+                .or_else(|| node.props.text.clone())
+                .unwrap_or_else(|| "Header Section".to_string());
             let description = node.props.content.clone();
             let base_style = "width: 100%; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 12px; margin-bottom: 16px; font-family: 'Outfit', sans-serif;";
             let header_style = format!("{} {}", base_style, styles);
@@ -2764,21 +4100,26 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "Switch" => rsx! {
-                Hooked_Switch {
-                    node: node.clone(),
-                    styles: styles.clone(),
-                    selected_id,
-                    on_select,
-                    on_drop,
-                    on_delete
-                        }
-                    },
+        Hooked_Switch {
+            node: node.clone(),
+            styles: styles.clone(),
+            selected_id,
+            on_select,
+            on_drop,
+            on_delete
+                }
+            },
 
         "Iframe" => {
-            let src = node.props.extra.get("src").and_then(|v| v.as_str()).unwrap_or("https://dioxuslabs.com");
+            let src = node
+                .props
+                .extra
+                .get("src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://dioxuslabs.com");
             let base_style = "border-radius: var(--radius, 12px); border: 1px solid rgba(0,0,0,0.08); overflow: hidden; width: 100%; min-height: 300px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
             let iframe_style = format!("{} {}", base_style, styles);
             rsx! {
@@ -2788,7 +4129,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     style: "{iframe_style}",
                 }
             }
-        },
+        }
 
         "YearCalendar" => {
             let base_style = "background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 680px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); overflow-x: auto; box-sizing: border-box;";
@@ -2803,7 +4144,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                         height: "100",
                         view_box: "0 0 600 100",
                         style: "overflow: visible;",
-                        
+
                         g {
                             for col in 0..48 {
                                 g {
@@ -2837,7 +4178,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         "SearchFilters" => {
             let base_style = "display: flex; gap: 10px; align-items: center; width: 100%; box-sizing: border-box;";
@@ -2861,7 +4202,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                     }
                 }
             }
-        },
+        }
 
         // Unknown components fallback
         unknown => rsx! {
@@ -2871,21 +4212,26 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 b { "Unknown Component: {unknown}" }
                 span { style: "display: block; font-size: 11px; color: #7f1d1d; margin-top: 4px; font-family: monospace;", "ID: {node.id}" }
             }
-        }
+        },
     };
 
-    let is_editor = selected_id.is_some() && on_select.is_some() && on_drop.is_some() && on_delete.is_some();
-    
+    let is_editor =
+        selected_id.is_some() && on_select.is_some() && on_drop.is_some() && on_delete.is_some();
+
     if is_editor {
         let sel_sig = selected_id.unwrap();
         let select_handler = on_select.unwrap();
         let drop_handler = on_drop.unwrap();
         let delete_handler = on_delete.unwrap();
-        
+
         let is_sel = sel_sig.read().as_ref() == Some(&node.id);
-        let border_outline = if is_sel { "2px solid #3b82f6" } else { "1px dashed rgba(59, 130, 246, 0.15)" };
+        let border_outline = if is_sel {
+            "2px solid #3b82f6"
+        } else {
+            "1px dashed rgba(59, 130, 246, 0.15)"
+        };
         let is_drop_target = is_container(&node.component_type);
-        
+
         let select_id = node.id.clone();
         let select_id_for_mousedown = select_id.clone();
         let select_id_for_click = select_id.clone();
@@ -2893,7 +4239,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
         let drop_id = node.id.clone();
         let delete_id = node.id.clone();
         let is_not_root = node.id != "root";
-        
+
         rsx! {
             div {
                 style: "{wrapper_styles}",
@@ -2925,7 +4271,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                         drop_handler.call((drop_id.clone(), coords.x, coords.y));
                     }
                 },
-                
+
                 if is_not_root {
                     button {
                         style: "position: absolute; top: -10px; right: -10px; background-color: #ef4444; color: #ffffff; border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.15);",
@@ -2936,7 +4282,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                         "×"
                     }
                 }
-                
+
                 {element_content}
             }
         }
@@ -2944,7 +4290,6 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
         element_content
     }
 }
-
 
 #[component]
 fn Hooked_DrawerPanel(
@@ -2954,64 +4299,65 @@ fn Hooked_DrawerPanel(
     on_select: Option<EventHandler<String>>,
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
-    #[props(default)]
-    on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
-    #[props(default)]
-    on_drag_start: Option<EventHandler<(String, f64, f64)>>,
+    #[props(default)] on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
+    #[props(default)] on_drag_start: Option<EventHandler<(String, f64, f64)>>,
 ) -> Element {
-    let title = node.props.title.clone().unwrap_or_else(|| "Menu Panel".to_string());
-            let mut open = use_signal(|| false);
+    let title = node
+        .props
+        .title
+        .clone()
+        .unwrap_or_else(|| "Menu Panel".to_string());
+    let mut open = use_signal(|| false);
 
-            let base_style = "display: flex; flex-direction: column; font-family: 'Outfit', sans-serif;";
-            let drawer_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; flex-direction: column; font-family: 'Outfit', sans-serif;";
+    let drawer_style = format!("{} {}", base_style, styles);
 
-            let drawer_position_style = if open() {
-                "position: fixed; top: 0; right: 0; width: 320px; height: 100vh; background-color: #ffffff; box-shadow: -10px 0 30px rgba(0,0,0,0.1); transform: translateX(0); transition: transform 0.3s ease-out; z-index: 1000; display: flex; flex-direction: column; border-left: 1px solid #e2e8f0;"
-            } else {
-                "position: fixed; top: 0; right: -340px; width: 320px; height: 100vh; background-color: #ffffff; transform: translateX(100%); transition: transform 0.3s ease-in; z-index: 1000; display: flex; flex-direction: column;"
-            };
+    let drawer_position_style = if open() {
+        "position: fixed; top: 0; right: 0; width: 320px; height: 100vh; background-color: #ffffff; box-shadow: -10px 0 30px rgba(0,0,0,0.1); transform: translateX(0); transition: transform 0.3s ease-out; z-index: 1000; display: flex; flex-direction: column; border-left: 1px solid #e2e8f0;"
+    } else {
+        "position: fixed; top: 0; right: -340px; width: 320px; height: 100vh; background-color: #ffffff; transform: translateX(100%); transition: transform 0.3s ease-in; z-index: 1000; display: flex; flex-direction: column;"
+    };
 
-            rsx! {
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{drawer_style}",
+            button {
+                style: "padding: 8px 16px; background-color: #0f172a; color: #ffffff; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;",
+                onclick: move |_| *open.write() = !open(),
+                "📂 {title}"
+            }
+
+            // Sliding Drawer Content
+            div {
+                style: "{drawer_position_style}",
                 div {
-                    id: "{node.id}",
-                    style: "{drawer_style}",
+                    style: "padding: 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background-color: #f8fafc;",
+                    span { style: "font-weight: 700; color: #0f172a; font-size: 16px;", "{title}" }
                     button {
-                        style: "padding: 8px 16px; background-color: #0f172a; color: #ffffff; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;",
-                        onclick: move |_| *open.write() = !open(),
-                        "📂 {title}"
+                        style: "background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8;",
+                        onclick: move |_| *open.write() = false,
+                        "×"
                     }
-                    
-                    // Sliding Drawer Content
-                    div {
-                        style: "{drawer_position_style}",
-                        div {
-                            style: "padding: 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background-color: #f8fafc;",
-                            span { style: "font-weight: 700; color: #0f172a; font-size: 16px;", "{title}" }
-                            button {
-                                style: "background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8;",
-                                onclick: move |_| *open.write() = false,
-                                "×"
-                            }
-                        }
-                        div {
-                            style: "padding: 20px; flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;",
-                            for child in node.children {
-                                ComponentRenderer {
-                                    node: child,
-                                    selected_id,
-                                    on_select,
-                                    on_drop,
-                                    on_delete,
-                                    on_resize_start,
-                                    on_drag_start
-                                }
-                            }
+                }
+                div {
+                    style: "padding: 20px; flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;",
+                    for child in node.children {
+                        ComponentRenderer {
+                            node: child,
+                            selected_id,
+                            on_select,
+                            on_drop,
+                            on_delete,
+                            on_resize_start,
+                            on_drag_start
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_Modal(
@@ -3021,53 +4367,62 @@ fn Hooked_Modal(
     on_select: Option<EventHandler<String>>,
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
-    #[props(default)]
-    on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
-    #[props(default)]
-    on_drag_start: Option<EventHandler<(String, f64, f64)>>,
+    #[props(default)] on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
+    #[props(default)] on_drag_start: Option<EventHandler<(String, f64, f64)>>,
 ) -> Element {
-    let title = node.props.title.clone().unwrap_or_else(|| "Dialog Window".to_string());
+    let title = node
+        .props
+        .title
+        .clone()
+        .unwrap_or_else(|| "Dialog Window".to_string());
     let mut open = use_signal(|| false);
+    let data_state = use_context::<GlobalDataState>().0;
+    let local_item_sig = use_context::<RepeaterItemState>().0;
+    let local_item = local_item_sig.read().clone();
+    let on_open_actions = modal_on_open_actions(&node);
 
-    let style_map = node.props.style.clone().unwrap_or_default();
-    let mut dialog_style = "background-color: #ffffff; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; animation: scaleIn 0.2s ease-out; max-width: 95vw; max-height: 90vh;".to_string();
-
-    if let Some(w) = style_map.get("width") {
-        dialog_style.push_str(&format!("width: {};", w));
-    } else {
-        dialog_style.push_str("width: 90%; max-width: 480px;");
-    }
-
-    if let Some(h) = style_map.get("height") {
-        dialog_style.push_str(&format!("height: {};", h));
-    }
-
-    if let Some(min_h) = style_map.get("minHeight") {
-        dialog_style.push_str(&format!("min-height: {};", min_h));
-    }
-
-    if let Some(min_w) = style_map.get("minWidth") {
-        dialog_style.push_str(&format!("min-width: {};", min_w));
-    }
+    let modal_sizing = modal_sizing_styles(&node);
+    let dialog_style = modal_sizing.dialog_style;
+    let body_style = modal_sizing.body_style;
 
     let modal_style = "position: absolute; width: 0; height: 0; overflow: visible; z-index: 9999; margin: 0; padding: 0; border: none;";
 
-
     // Register event listeners on the DOM element for open-modal / close-modal
     let modal_id = node.id.clone();
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (&modal_id, &data_state, &on_open_actions, &local_item);
+
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
             use wasm_bindgen::prelude::Closure;
             use wasm_bindgen::JsCast;
 
-            let window = match web_sys::window() { Some(w) => w, None => return };
-            let document = match window.document() { Some(d) => d, None => return };
-            let el = match document.get_element_by_id(&modal_id) { Some(e) => e, None => return };
+            let actions_for_open = on_open_actions.clone();
+            let item_for_open = local_item.clone();
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let document = match window.document() {
+                Some(d) => d,
+                None => return,
+            };
+            let el = match document.get_element_by_id(&modal_id) {
+                Some(e) => e,
+                None => return,
+            };
 
             let mut open_signal = open.clone();
             let on_open = Closure::wrap(Box::new(move || {
                 *open_signal.write() = true;
+                if !actions_for_open.is_empty() {
+                    let actions = actions_for_open.clone();
+                    let item = item_for_open.clone();
+                    spawn(async move {
+                        execute_actions(actions, data_state, item).await;
+                    });
+                }
             }) as Box<dyn FnMut()>);
 
             let mut close_signal = open.clone();
@@ -3075,8 +4430,10 @@ fn Hooked_Modal(
                 *close_signal.write() = false;
             }) as Box<dyn FnMut()>);
 
-            let _ = el.add_event_listener_with_callback("open-modal", on_open.as_ref().unchecked_ref());
-            let _ = el.add_event_listener_with_callback("close-modal", on_close.as_ref().unchecked_ref());
+            let _ =
+                el.add_event_listener_with_callback("open-modal", on_open.as_ref().unchecked_ref());
+            let _ = el
+                .add_event_listener_with_callback("close-modal", on_close.as_ref().unchecked_ref());
 
             on_open.forget();
             on_close.forget();
@@ -3091,10 +4448,10 @@ fn Hooked_Modal(
 
             if open() {
                 div {
-                    style: "position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 2000; animation: fadeIn 0.2s ease-out;",
+                    style: "position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; padding: 12px; box-sizing: border-box; background-color: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 2000; animation: fadeIn 0.2s ease-out;",
                     div {
                         style: "{dialog_style}",
-                        
+
                         // Modal Header
                         div {
                             style: "padding: 16px 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background-color: #f8fafc;",
@@ -3108,7 +4465,7 @@ fn Hooked_Modal(
 
                         // Modal Body
                         div {
-                            style: "position: relative; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; flex: 1 1 auto;",
+                            style: "{body_style}",
                             for child in node.children {
                                 ComponentRenderer {
                                     node: child,
@@ -3143,7 +4500,6 @@ fn Hooked_Modal(
     }
 }
 
-
 #[component]
 fn Hooked_Checkbox(
     node: ComponentNode,
@@ -3153,27 +4509,43 @@ fn Hooked_Checkbox(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Accept Terms".to_string());
-            let mut checked = use_signal(|| false);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Accept Terms".to_string());
+    let mut data_state = use_context::<GlobalDataState>().0;
+    let bound_bool = node
+        .props
+        .extra
+        .get("__boundValue")
+        .and_then(json_value_to_bool);
+    let mut checked = use_signal(move || bound_bool.unwrap_or(false));
+    let is_checked = bound_bool.unwrap_or_else(|| checked());
+    let bind_node = node.clone();
 
-            let base_style = "display: flex; align-items: center; gap: 8px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
-            let check_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; align-items: center; gap: 8px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
+    let check_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                label {
-                    id: "{node.id}",
-                    style: "{check_style}",
-                    input {
-                        r#type: "checkbox",
-                        checked: checked(),
-                        style: "width: 16px; height: 16px; cursor: pointer;",
-                        onchange: move |_| *checked.write() = !checked(),
-                    }
-                    span { style: "color: #334155; font-weight: 500;", "{label}" }
-                }
+    rsx! {
+        label {
+            id: "{node.id}",
+            style: "{check_style}",
+            input {
+                r#type: "checkbox",
+                checked: is_checked,
+                style: "width: 16px; height: 16px; cursor: pointer;",
+                onchange: move |_| {
+                    let next = !is_checked;
+                    *checked.write() = next;
+                    let mut data = data_state.write();
+                    set_node_bind_value(&bind_node, &mut data, serde_json::Value::Bool(next));
+                },
             }
+            span { style: "color: #334155; font-weight: 500;", "{label}" }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_Toggle(
@@ -3184,31 +4556,51 @@ fn Hooked_Toggle(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Status Enabled".to_string());
-            let mut active = use_signal(|| false);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Status Enabled".to_string());
+    let mut data_state = use_context::<GlobalDataState>().0;
+    let bound_bool = node
+        .props
+        .extra
+        .get("__boundValue")
+        .and_then(json_value_to_bool);
+    let mut active = use_signal(move || bound_bool.unwrap_or(false));
+    let is_active = bound_bool.unwrap_or_else(|| active());
+    let bind_node = node.clone();
 
-            let base_style = "display: flex; align-items: center; gap: 10px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
-            let toggle_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; align-items: center; gap: 10px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
+    let toggle_style = format!("{} {}", base_style, styles);
 
-            let switch_bg = if active() { "#3b82f6" } else { "#cbd5e1" };
-            let knob_transform = if active() { "translateX(18px)" } else { "translateX(0px)" };
+    let switch_bg = if is_active { "#3b82f6" } else { "#cbd5e1" };
+    let knob_transform = if is_active {
+        "translateX(18px)"
+    } else {
+        "translateX(0px)"
+    };
 
-            rsx! {
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{toggle_style}",
+            onclick: move |_| {
+                let next = !is_active;
+                *active.write() = next;
+                let mut data = data_state.write();
+                set_node_bind_value(&bind_node, &mut data, serde_json::Value::Bool(next));
+            },
+            div {
+                style: "position: relative; width: 38px; height: 20px; background-color: {switch_bg}; border-radius: 9999px; transition: background-color 0.2s;",
                 div {
-                    id: "{node.id}",
-                    style: "{toggle_style}",
-                    onclick: move |_| *active.write() = !active(),
-                    div {
-                        style: "position: relative; width: 38px; height: 20px; background-color: {switch_bg}; border-radius: 9999px; transition: background-color 0.2s;",
-                        div {
-                            style: "position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background-color: #ffffff; border-radius: 50%; transition: transform 0.2s; transform: {knob_transform}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);",
-                        }
-                    }
-                    span { style: "color: #334155; font-weight: 500;", "{label}" }
+                    style: "position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background-color: #ffffff; border-radius: 50%; transition: transform 0.2s; transform: {knob_transform}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);",
                 }
             }
+            span { style: "color: #334155; font-weight: 500;", "{label}" }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_SignaturePad(
@@ -3219,53 +4611,158 @@ fn Hooked_SignaturePad(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Signature Required".to_string());
-            let mut signed = use_signal(|| false);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Signature Required".to_string());
+    let mut signed = use_signal(|| false);
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; width: 320px;";
-            let sig_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; width: 320px;";
+    let sig_style = format!("{} {}", base_style, styles);
 
-            let draw_color = if signed() { "#0f172a" } else { "#cbd5e1" };
+    let draw_color = if signed() { "#0f172a" } else { "#cbd5e1" };
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{sig_style}",
-                    span { style: "font-weight: 600; color: #475569; font-size: 14px;", "{label}" }
-                    div {
-                        style: "height: 100px; border-radius: 8px; border: 1px dashed #cbd5e1; background-color: #f8fafc; position: relative; display: flex; align-items: center; justify-content: center; cursor: crosshair;",
-                        onclick: move |_| *signed.write() = true,
-                        
-                        if signed() {
-                            svg {
-                                width: "240",
-                                height: "60",
-                                view_box: "0 0 240 60",
-                                path {
-                                    d: "M 10 30 Q 30 10, 60 40 T 120 20 T 180 35 T 230 10",
-                                    fill: "none",
-                                    stroke: "{draw_color}",
-                                    stroke_width: "2.5",
-                                }
-                            }
-                        } else {
-                            span { style: "font-size: 12px; color: #94a3b8;", "Click here to draw signature" }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{sig_style}",
+            span { style: "font-weight: 600; color: #475569; font-size: 14px;", "{label}" }
+            div {
+                style: "height: 100px; border-radius: 8px; border: 1px dashed #cbd5e1; background-color: #f8fafc; position: relative; display: flex; align-items: center; justify-content: center; cursor: crosshair;",
+                onclick: move |_| *signed.write() = true,
+
+                if signed() {
+                    svg {
+                        width: "240",
+                        height: "60",
+                        view_box: "0 0 240 60",
+                        path {
+                            d: "M 10 30 Q 30 10, 60 40 T 120 20 T 180 35 T 230 10",
+                            fill: "none",
+                            stroke: "{draw_color}",
+                            stroke_width: "2.5",
                         }
                     }
-                    div {
-                        style: "display: flex; justify-content: space-between; font-size: 12px;",
-                        button {
-                            r#type: "button",
-                            style: "background: none; border: none; color: #ef4444; font-weight: 600; cursor: pointer;",
-                            onclick: move |_| *signed.write() = false,
-                            "Clear"
+                } else {
+                    span { style: "font-size: 12px; color: #94a3b8;", "Click here to draw signature" }
+                }
+            }
+            div {
+                style: "display: flex; justify-content: space-between; font-size: 12px;",
+                button {
+                    r#type: "button",
+                    style: "background: none; border: none; color: #ef4444; font-weight: 600; cursor: pointer;",
+                    onclick: move |_| *signed.write() = false,
+                    "Clear"
+                }
+                span { style: "color: #94a3b8;", "Secure Verification" }
+            }
+        }
+    }
+}
+
+#[component]
+fn Hooked_Select(
+    node: ComponentNode,
+    styles: String,
+    selected_id: Option<Signal<Option<String>>>,
+    on_select: Option<EventHandler<String>>,
+    on_drop: Option<EventHandler<(String, f64, f64)>>,
+    on_delete: Option<EventHandler<String>>,
+) -> Element {
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Select Option".to_string());
+    let placeholder = node.props.placeholder.clone().unwrap_or_default();
+    let required = node.props.required.unwrap_or(false);
+    let has_bind = node
+        .props
+        .bind
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let select_value = node
+        .props
+        .extra
+        .get("__boundValue")
+        .map(json_value_to_display_string)
+        .unwrap_or_default();
+    let select_name = form_control_name(&node);
+    let bind_node = node.clone();
+
+    let mut data_state = use_context::<GlobalDataState>().0;
+    let local_item_sig = use_context::<RepeaterItemState>().0;
+    let local_item = local_item_sig.read().clone();
+    let load_actions = dropdown_load_actions(&node);
+    let effect_item = local_item.clone();
+
+    use_effect(move || {
+        let actions = load_actions.clone();
+        let item = effect_item.clone();
+        if actions.is_empty() {
+            return;
+        }
+
+        spawn(async move {
+            execute_actions(actions, data_state, item).await;
+        });
+    });
+
+    let global_data = data_state.read().clone();
+    let options = dropdown_options_for_node(&node, local_item.as_ref(), &global_data);
+
+    let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
+    let select_container_style = format!("{} {}", base_style, styles);
+
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{select_container_style}",
+            label {
+                style: "font-weight: 600; color: #475569;",
+                "{label}"
+                if required {
+                    span { style: "color: #ef4444; margin-left: 2px;", "*" }
+                }
+            }
+            select {
+                name: "{select_name}",
+                value: if has_bind { select_value.clone() },
+                required: required,
+                style: "padding: 10px 12px; border-radius: var(--radius, 8px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #1e293b; outline: none; font-family: inherit; font-size: 14px; cursor: pointer; box-sizing: border-box; width: 100%;",
+                onchange: move |evt| {
+                    let mut data = data_state.write();
+                    set_node_bind_value(&bind_node, &mut data, serde_json::Value::String(evt.value()));
+                },
+                if !placeholder.is_empty() {
+                    option {
+                        value: "",
+                        disabled: true,
+                        "{placeholder}"
+                    }
+                }
+                if options.is_empty() {
+                    option {
+                        value: "",
+                        disabled: true,
+                        "No options available"
+                    }
+                } else {
+                    for option in options {
+                        option {
+                            key: "{option.value}",
+                            value: "{option.value}",
+                            "{option.label}"
                         }
-                        span { style: "color: #94a3b8;", "Secure Verification" }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_MultiSelectDropdown(
@@ -3276,72 +4773,143 @@ fn Hooked_MultiSelectDropdown(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Select Categories".to_string());
-            let mut selected = use_signal(|| vec!["Design".to_string()]);
-            let mut show_opts = use_signal(|| false);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Select Categories".to_string());
+    let has_bind = node
+        .props
+        .bind
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let initial_selected = dropdown_selected_values(node.props.extra.get("__boundValue"));
+    let mut selected = use_signal(move || initial_selected.clone());
+    let mut show_opts = use_signal(|| false);
+    let bind_node = node.clone();
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px; position: relative;";
-            let ms_style = format!("{} {}", base_style, styles);
+    let mut data_state = use_context::<GlobalDataState>().0;
+    let local_item_sig = use_context::<RepeaterItemState>().0;
+    let local_item = local_item_sig.read().clone();
+    let load_actions = dropdown_load_actions(&node);
+    let effect_item = local_item.clone();
 
-            let options = vec!["Design".to_string(), "Code".to_string(), "Marketing".to_string(), "Security".to_string()];
+    use_effect(move || {
+        let actions = load_actions.clone();
+        let item = effect_item.clone();
+        if actions.is_empty() {
+            return;
+        }
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{ms_style}",
-                    label { style: "font-weight: 600; color: #475569;", "{label}" }
-                    div {
-                        style: "padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; min-height: 40px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; cursor: pointer; box-sizing: border-box;",
-                        onclick: move |_| *show_opts.write() = !show_opts(),
-                        
-                        for tag in selected() {
+        spawn(async move {
+            execute_actions(actions, data_state, item).await;
+        });
+    });
+
+    let global_data = data_state.read().clone();
+    let options = dropdown_options_for_node(&node, local_item.as_ref(), &global_data);
+    let selected_values = if has_bind {
+        dropdown_selected_values(node.props.extra.get("__boundValue"))
+    } else {
+        selected()
+    };
+    let selected_tags: Vec<(String, String)> = selected_values
+        .iter()
+        .map(|value| (value.clone(), dropdown_option_label(&options, value)))
+        .collect();
+
+    let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px; position: relative;";
+    let ms_style = format!("{} {}", base_style, styles);
+
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{ms_style}",
+            label { style: "font-weight: 600; color: #475569;", "{label}" }
+            div {
+                style: "padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; min-height: 40px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; cursor: pointer; box-sizing: border-box;",
+                onclick: move |_| *show_opts.write() = !show_opts(),
+
+                for (tag_value, tag_label) in selected_tags {
+                    {
+                        let remove_value = tag_value.clone();
+                        let current_values = selected_values.clone();
+                        let remove_bind_node = bind_node.clone();
+                        rsx! {
                             div {
-                                key: "{tag}",
+                                key: "{tag_value}",
                                 style: "background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 6px; font-size: 12px; display: flex; align-items: center; gap: 4px; font-weight: 600;",
-                                span { "{tag}" }
+                                span { "{tag_label}" }
                                 span {
                                     style: "font-weight: bold; font-size: 10px; opacity: 0.8; margin-left: 2px;",
                                     onclick: move |e| {
                                         e.stop_propagation();
-                                        let mut tags = selected.read().clone();
-                                        tags.retain(|t| t != &tag);
-                                        *selected.write() = tags;
+                                        let mut tags = if has_bind {
+                                            current_values.clone()
+                                        } else {
+                                            selected.read().clone()
+                                        };
+                                        tags.retain(|tag| tag != &remove_value);
+                                        *selected.write() = tags.clone();
+                                        if has_bind {
+                                            let mut data = data_state.write();
+                                            set_node_bind_value(&remove_bind_node, &mut data, dropdown_values_to_json(&tags));
+                                        }
                                     },
                                     "×"
                                 }
                             }
                         }
-                        if selected().is_empty() {
-                            span { style: "color: #94a3b8; font-size: 13px;", "Select options..." }
-                        }
                     }
+                }
+                if selected_values.is_empty() {
+                    span { style: "color: #94a3b8; font-size: 13px;", "Select options..." }
+                }
+            }
 
-                    if show_opts() {
+            if show_opts() {
+                div {
+                    style: "position: absolute; top: 100%; left: 0; right: 0; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 100; margin-top: 4px; overflow: hidden; display: flex; flex-direction: column;",
+                    if options.is_empty() {
                         div {
-                            style: "position: absolute; top: 100%; left: 0; right: 0; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 100; margin-top: 4px; overflow: hidden; display: flex; flex-direction: column;",
-                            for opt in options {
-                                {
-                                    let is_sel = selected().contains(&opt);
-                                    let bg_c = if is_sel { "#f1f5f9" } else { "#ffffff" };
-                                    let text_c = if is_sel { "#1d4ed8" } else { "#334155" };
-                                    let f_weight = if is_sel { "600" } else { "normal" };
-                                    let opt_clone = opt.clone();
-                                    rsx! {
-                                        div {
-                                            key: "{opt}",
-                                            style: "padding: 10px 12px; cursor: pointer; font-size: 13px; background-color: {bg_c}; color: {text_c}; font-weight: {f_weight};",
-                                            onclick: move |_| {
-                                                let mut tags = selected.read().clone();
-                                                if tags.contains(&opt_clone) {
-                                                    tags.retain(|t| t != &opt_clone);
-                                                } else {
-                                                    tags.push(opt_clone.clone());
-                                                }
-                                                *selected.write() = tags;
-                                                *show_opts.write() = false;
-                                            },
-                                            "{opt}"
-                                        }
+                            style: "padding: 10px 12px; font-size: 13px; color: #94a3b8;",
+                            "No options available"
+                        }
+                    } else {
+                        for opt in options {
+                            {
+                                let is_sel = selected_values.contains(&opt.value);
+                                let bg_c = if is_sel { "#f1f5f9" } else { "#ffffff" };
+                                let text_c = if is_sel { "#1d4ed8" } else { "#334155" };
+                                let f_weight = if is_sel { "600" } else { "normal" };
+                                let opt_value = opt.value.clone();
+                                let opt_label = opt.label.clone();
+                                let current_values = selected_values.clone();
+                                let option_bind_node = bind_node.clone();
+                                rsx! {
+                                    div {
+                                        key: "{opt_value}",
+                                        style: "padding: 10px 12px; cursor: pointer; font-size: 13px; background-color: {bg_c}; color: {text_c}; font-weight: {f_weight};",
+                                        onclick: move |_| {
+                                            let mut tags = if has_bind {
+                                                current_values.clone()
+                                            } else {
+                                                selected.read().clone()
+                                            };
+                                            if tags.contains(&opt_value) {
+                                                tags.retain(|tag| tag != &opt_value);
+                                            } else {
+                                                tags.push(opt_value.clone());
+                                            }
+                                            *selected.write() = tags.clone();
+                                            if has_bind {
+                                                let mut data = data_state.write();
+                                                set_node_bind_value(&option_bind_node, &mut data, dropdown_values_to_json(&tags));
+                                            }
+                                            *show_opts.write() = false;
+                                        },
+                                        "{opt_label}"
                                     }
                                 }
                             }
@@ -3349,8 +4917,9 @@ fn Hooked_MultiSelectDropdown(
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_Button(
@@ -3365,17 +4934,45 @@ fn Hooked_Button(
     let local_item_sig = use_context::<RepeaterItemState>().0;
     let local_item = local_item_sig.read().clone();
 
-    let raw_label = node.props.label.clone().unwrap_or_else(|| "Button".to_string());
+    let raw_label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Button".to_string());
     let label = resolve_string_templates(&raw_label, local_item.as_ref(), &data_state.read());
-    let variant = node.props.variant.clone().unwrap_or_else(|| "primary".to_string());
-    let actions = node.on_click.clone();
+    let variant = node
+        .props
+        .variant
+        .clone()
+        .unwrap_or_else(|| "primary".to_string());
+    let raw_actions = node.on_click.clone();
+    let actions = button_click_actions(&raw_actions);
+    let button_type = if button_has_submit_form_action(&raw_actions) && actions.is_empty() {
+        "submit".to_string()
+    } else {
+        node_extra_str(&node, &["type", "buttonType", "button_type"])
+            .unwrap_or("button")
+            .to_string()
+    };
 
     let (bg, text_c, border_c) = match variant.as_str() {
-        "danger"  => ("linear-gradient(135deg,#dc2626,#b91c1c)", "#ffffff", "transparent"),
-        "ghost"   => ("transparent", "#475569", "1px solid #e2e8f0"),
+        "danger" => (
+            "linear-gradient(135deg,#dc2626,#b91c1c)",
+            "#ffffff",
+            "transparent",
+        ),
+        "ghost" => ("transparent", "#475569", "1px solid #e2e8f0"),
         "outline" => ("transparent", "#3b82f6", "1px solid #3b82f6"),
-        "success" => ("linear-gradient(135deg,#059669,#047857)", "#ffffff", "transparent"),
-        _         => ("linear-gradient(135deg,#030213,#1e1b4b)", "#ffffff", "transparent"),
+        "success" => (
+            "linear-gradient(135deg,#059669,#047857)",
+            "#ffffff",
+            "transparent",
+        ),
+        _ => (
+            "linear-gradient(135deg,#030213,#1e1b4b)",
+            "#ffffff",
+            "transparent",
+        ),
     };
     let base_style = format!("cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-family: 'Outfit', sans-serif; transition: all 0.2s; border-radius: var(--radius,10px); outline: none; border: {}; background: {}; color: {}; padding: 10px 20px; user-select: none; box-shadow: 0 4px 10px rgba(3,2,19,0.12);", border_c, bg, text_c);
     let btn_style = format!("{} {}", base_style, styles);
@@ -3383,13 +4980,16 @@ fn Hooked_Button(
     rsx! {
         button {
             id: "{node.id}",
+            r#type: "{button_type}",
             style: "{btn_style}",
             onclick: move |_| {
-                let acts = actions.clone();
-                let item = local_item.clone();
-                spawn(async move {
-                    execute_actions(acts, data_state, item).await;
-                });
+                if !actions.is_empty() {
+                    let acts = actions.clone();
+                    let item = local_item.clone();
+                    spawn(async move {
+                        execute_actions(acts, data_state, item).await;
+                    });
+                }
             },
             "{label}"
         }
@@ -3399,30 +4999,50 @@ fn Hooked_Button(
 /// Dispatches a list of actions sequentially.
 /// Each action is a JSON object matching the home.json event shape:
 /// `{ "type": "API_CALL", "payload": { ... } }` (legacy) or flat builder shape.
-pub(crate) fn execute_actions(actions: Vec<serde_json::Value>, data_state: Signal<serde_json::Value>, local_item: Option<serde_json::Value>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'static>> {
+pub(crate) fn execute_actions(
+    actions: Vec<serde_json::Value>,
+    data_state: Signal<serde_json::Value>,
+    local_item: Option<serde_json::Value>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'static>> {
     Box::pin(async move {
         execute_actions_impl(actions, data_state, local_item).await;
     })
 }
 
-async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: Signal<serde_json::Value>, local_item: Option<serde_json::Value>) {
+async fn execute_actions_impl(
+    actions: Vec<serde_json::Value>,
+    mut data_state: Signal<serde_json::Value>,
+    local_item: Option<serde_json::Value>,
+) {
     for action in actions {
         let action = resolve_json_templates(&action, local_item.as_ref(), &data_state.read());
-        let action_type = action.get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let action_type = action.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
         // Support both `payload.*` wrapper (home.json) and flat builder schema
-        let payload = action.get("payload").cloned()
+        let payload = action
+            .get("payload")
+            .cloned()
             .unwrap_or_else(|| action.clone());
+        let success_actions = action_success_actions(&action);
+        let error_actions = action_error_actions(&action);
+        let mut action_failed = false;
 
         match action_type {
             "API_CALL" => {
-                let url = payload.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let method = payload.get("method").and_then(|v| v.as_str()).unwrap_or("POST").to_string();
-                let body = payload.get("body").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
-                let success_actions = payload.get("onSuccess").cloned();
-                let _error_actions = payload.get("onError").cloned();
+                let url = payload
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let method = payload
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("POST")
+                    .to_string();
+                let body = payload
+                    .get("body")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
 
                 if !url.is_empty() {
                     let mut parsed = serde_json::Value::Null;
@@ -3446,12 +5066,19 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                             let _ = request.headers().set("Content-Type", "application/json");
 
                             if let Some(window) = web_sys::window() {
-                                if let Ok(resp_val) = JsFuture::from(window.fetch_with_request(&request)).await {
+                                if let Ok(resp_val) =
+                                    JsFuture::from(window.fetch_with_request(&request)).await
+                                {
                                     if let Ok(resp) = resp_val.dyn_into::<Response>() {
                                         if let Ok(json_promise) = resp.json() {
-                                            if let Ok(json_val) = JsFuture::from(json_promise).await {
-                                                if let Ok(json_str) = js_sys::JSON::stringify(&json_val) {
-                                                    if let Ok(p) = serde_json::from_str(&String::from(json_str)) {
+                                            if let Ok(json_val) = JsFuture::from(json_promise).await
+                                            {
+                                                if let Ok(json_str) =
+                                                    js_sys::JSON::stringify(&json_val)
+                                                {
+                                                    if let Ok(p) = serde_json::from_str(
+                                                        &String::from(json_str),
+                                                    ) {
                                                         parsed = p;
                                                         success = true;
                                                         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
@@ -3468,9 +5095,15 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                     }
 
                     if !success {
-                        let workflow_name = body.get("workflow_name").and_then(|v| v.as_str()).unwrap_or("");
-                        let master_name = body.get("master_name").and_then(|v| v.as_str()).unwrap_or("");
-                        
+                        let workflow_name = body
+                            .get("workflow_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let master_name = body
+                            .get("master_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+
                         if workflow_name == "get_mongo_master_with_cond" && master_name == "email" {
                             let mock_email_list = serde_json::json!([
                                 {
@@ -3532,58 +5165,82 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                         }
                     }
 
-                    let target_key = payload.get("targetKey")
-                        .or_else(|| payload.get("target_key"))
+                    let fail_on_status_failed = payload
+                        .get("failOnStatusFailed")
+                        .or_else(|| payload.get("fail_on_status_failed"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let status_failed = parsed
+                        .get("status")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("result");
-                    
-                    // Insert into the global data state
-                    {
-                        let mut data = data_state.write();
-                        if let Some(obj) = data.as_object_mut() {
-                            obj.insert(target_key.to_string(), parsed);
-                        } else {
-                            let mut map = serde_json::Map::new();
-                            map.insert(target_key.to_string(), parsed);
-                            *data = serde_json::Value::Object(map);
-                        }
-                    }
+                        .map(|status| status.eq_ignore_ascii_case("failed"))
+                        .unwrap_or(false);
 
-                    // Execute success actions
-                    if let Some(s_acts) = success_actions {
-                        if let Some(arr) = s_acts.as_array() {
-                            execute_actions(arr.clone(), data_state, local_item.clone()).await;
+                    if fail_on_status_failed && status_failed {
+                        action_failed = true;
+                    } else {
+                        let target_key = payload
+                            .get("targetKey")
+                            .or_else(|| payload.get("target_key"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("result");
+
+                        // Insert into the global data state
+                        {
+                            let mut data = data_state.write();
+                            if let Some(obj) = data.as_object_mut() {
+                                obj.insert(target_key.to_string(), parsed);
+                            } else {
+                                let mut map = serde_json::Map::new();
+                                map.insert(target_key.to_string(), parsed);
+                                *data = serde_json::Value::Object(map);
+                            }
                         }
                     }
                 }
             }
 
             "NAVIGATE" => {
-                let page_id = payload.get("pageId")
+                let page_id = payload
+                    .get("pageId")
                     .or_else(|| payload.get("page_id"))
                     .or_else(|| payload.get("to"))
                     .or_else(|| payload.get("target"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !page_id.is_empty() {
-                    let force_refresh = payload.get("forceRefresh")
+                    let force_refresh = payload
+                        .get("forceRefresh")
                         .or_else(|| payload.get("force_refresh"))
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
 
                     // Process routeParams
-                    if let Some(params) = payload.get("routeParams").or_else(|| payload.get("route_params")).or_else(|| payload.get("params")) {
-                        let resolved_params = resolve_json_templates(params, local_item.as_ref(), &data_state.read());
+                    if let Some(params) = payload
+                        .get("routeParams")
+                        .or_else(|| payload.get("route_params"))
+                        .or_else(|| payload.get("params"))
+                    {
+                        let resolved_params =
+                            resolve_json_templates(params, local_item.as_ref(), &data_state.read());
                         let mut data = data_state.write();
                         set_json_value_at_path(&mut data, "data.routeParams", resolved_params);
                     }
 
                     // Process dataMappings
-                    if let Some(mappings) = payload.get("dataMappings").or_else(|| payload.get("data_mappings")).and_then(|v| v.as_array()) {
+                    if let Some(mappings) = payload
+                        .get("dataMappings")
+                        .or_else(|| payload.get("data_mappings"))
+                        .and_then(|v| v.as_array())
+                    {
                         for mapping in mappings {
                             if let Some(path) = mapping.get("path").and_then(|v| v.as_str()) {
                                 if let Some(val) = mapping.get("value") {
-                                    let resolved_val = resolve_json_templates(val, local_item.as_ref(), &data_state.read());
+                                    let resolved_val = resolve_json_templates(
+                                        val,
+                                        local_item.as_ref(),
+                                        &data_state.read(),
+                                    );
                                     let mut data = data_state.write();
                                     set_json_value_at_path(&mut data, path, resolved_val);
                                 }
@@ -3594,14 +5251,17 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                     let target_route = if page_id.starts_with('/') {
                         page_id.to_string()
                     } else {
-                        let routes_opt = data_state.read().get("__routes")
+                        let routes_opt = data_state
+                            .read()
+                            .get("__routes")
                             .and_then(|v| v.as_array())
                             .cloned();
-                        
+
                         let mut found_route = format!("/{}", page_id);
                         if let Some(routes) = routes_opt {
                             for r in routes {
-                                let r_page_id = r.get("page_id")
+                                let r_page_id = r
+                                    .get("page_id")
                                     .or_else(|| r.get("pageId"))
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
@@ -3622,7 +5282,11 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                             let _ = window.location().set_href(&next);
                         } else {
                             if let Ok(history) = window.history() {
-                                let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&next));
+                                let _ = history.push_state_with_url(
+                                    &wasm_bindgen::JsValue::NULL,
+                                    "",
+                                    Some(&next),
+                                );
                                 if let Ok(evt) = web_sys::Event::new("popstate") {
                                     let _ = window.dispatch_event(&evt);
                                 }
@@ -3634,17 +5298,26 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
             }
 
             "OPEN_MODAL" => {
-                let modal_id = payload.get("modalId")
+                let modal_id = payload
+                    .get("modalId")
                     .or_else(|| payload.get("modal_id"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if !modal_id.is_empty() {
                     // Process dataMappings
-                    if let Some(mappings) = payload.get("dataMappings").or_else(|| payload.get("data_mappings")).and_then(|v| v.as_array()) {
+                    if let Some(mappings) = payload
+                        .get("dataMappings")
+                        .or_else(|| payload.get("data_mappings"))
+                        .and_then(|v| v.as_array())
+                    {
                         for mapping in mappings {
                             if let Some(path) = mapping.get("path").and_then(|v| v.as_str()) {
                                 if let Some(val) = mapping.get("value") {
-                                    let resolved_val = resolve_json_templates(val, local_item.as_ref(), &data_state.read());
+                                    let resolved_val = resolve_json_templates(
+                                        val,
+                                        local_item.as_ref(),
+                                        &data_state.read(),
+                                    );
                                     let mut data = data_state.write();
                                     set_json_value_at_path(&mut data, path, resolved_val);
                                 }
@@ -3665,11 +5338,13 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
                 }
             }
 
-            "CLOSE_MODAL" => {
+            "CLOSE_MODAL" =>
+            {
                 #[cfg(target_arch = "wasm32")]
                 if let Some(window) = web_sys::window() {
                     if let Some(document) = window.document() {
-                        if let Ok(modals) = document.query_selector_all("[data-modal-open='true']") {
+                        if let Ok(modals) = document.query_selector_all("[data-modal-open='true']")
+                        {
                             for i in 0..modals.length() {
                                 if let Some(el) = modals.item(i) {
                                     if let Ok(html_el) = el.dyn_into::<web_sys::Element>() {
@@ -3685,7 +5360,10 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
             }
 
             "TOAST" => {
-                let message = payload.get("message").and_then(|v| v.as_str()).unwrap_or("Done");
+                let message = payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Done");
                 #[cfg(target_arch = "wasm32")]
                 if let Some(window) = web_sys::window() {
                     let _ = window.alert_with_message(message);
@@ -3693,6 +5371,14 @@ async fn execute_actions_impl(actions: Vec<serde_json::Value>, mut data_state: S
             }
 
             _ => {}
+        }
+
+        if action_failed {
+            if let Some(arr) = error_actions {
+                execute_actions(arr, data_state, local_item.clone()).await;
+            }
+        } else if let Some(arr) = success_actions {
+            execute_actions(arr, data_state, local_item.clone()).await;
         }
     }
 }
@@ -3713,10 +5399,10 @@ fn set_json_value_at_path(root: &mut serde_json::Value, path: &str, value: serde
     if actual_path.is_empty() {
         return;
     }
-    
+
     let parts: Vec<&str> = actual_path.split('.').collect();
     let mut current = root;
-    
+
     for (i, part) in parts.iter().enumerate() {
         if i == parts.len() - 1 {
             if let Some(obj) = current.as_object_mut() {
@@ -3728,15 +5414,18 @@ fn set_json_value_at_path(root: &mut serde_json::Value, path: &str, value: serde
             }
             return;
         }
-        
+
         if !current.is_object() {
             *current = serde_json::Value::Object(serde_json::Map::new());
         }
-        
+
         if current.get(*part).is_none() {
-            current.as_object_mut().unwrap().insert(part.to_string(), serde_json::Value::Object(serde_json::Map::new()));
+            current.as_object_mut().unwrap().insert(
+                part.to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            );
         }
-        
+
         current = current.get_mut(*part).unwrap();
     }
 }
@@ -3744,7 +5433,7 @@ fn set_json_value_at_path(root: &mut serde_json::Value, path: &str, value: serde
 fn resolve_json_value_path(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
     let mut current = val;
     let parts = path.split('.');
-    
+
     for part in parts {
         if part.contains('[') && part.contains(']') {
             let open_idx = part.find('[')?;
@@ -3752,7 +5441,7 @@ fn resolve_json_value_path(val: &serde_json::Value, path: &str) -> Option<serde_
             let key = &part[..open_idx];
             let idx_str = &part[open_idx + 1..close_idx];
             let idx = idx_str.parse::<usize>().ok()?;
-            
+
             if !key.is_empty() {
                 current = current.get(key)?;
             }
@@ -3764,7 +5453,11 @@ fn resolve_json_value_path(val: &serde_json::Value, path: &str) -> Option<serde_
     Some(current.clone())
 }
 
-fn resolve_string_templates(template: &str, local_item: Option<&serde_json::Value>, global_data: &serde_json::Value) -> String {
+fn resolve_string_templates(
+    template: &str,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> String {
     if !template.contains("{{") {
         return template.to_string();
     }
@@ -3776,44 +5469,53 @@ fn resolve_string_templates(template: &str, local_item: Option<&serde_json::Valu
             let full_expr = &result[start..actual_end + 2];
             let path_expr = result[start + 2..actual_end].trim();
             let path_lower = path_expr.to_lowercase();
-            
+
             let resolved_val = if path_lower.starts_with("item.") {
                 let sub_path = &path_expr[5..];
-                local_item.and_then(|item| resolve_json_path(item, sub_path))
+                local_item
+                    .and_then(|item| resolve_json_path(item, sub_path))
                     .unwrap_or_else(|| "".to_string())
             } else if path_lower == "item" {
-                local_item.map(|item| match item {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                }).unwrap_or_default()
+                local_item
+                    .map(|item| match item {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default()
             } else if path_lower.starts_with("rowdata.") {
                 let sub_path = &path_expr[8..];
-                local_item.and_then(|item| resolve_json_path(item, sub_path))
+                local_item
+                    .and_then(|item| resolve_json_path(item, sub_path))
                     .unwrap_or_else(|| "".to_string())
             } else if path_lower == "rowdata" {
-                local_item.map(|item| match item {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                }).unwrap_or_default()
+                local_item
+                    .map(|item| match item {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default()
             } else if path_lower.starts_with("row.") {
                 let sub_path = &path_expr[4..];
-                local_item.and_then(|item| resolve_json_path(item, sub_path))
+                local_item
+                    .and_then(|item| resolve_json_path(item, sub_path))
                     .unwrap_or_else(|| "".to_string())
             } else if path_lower == "row" {
-                local_item.map(|item| match item {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                }).unwrap_or_default()
+                local_item
+                    .map(|item| match item {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default()
             } else if path_expr.starts_with("data.") {
                 let sub_path = &path_expr[5..];
-                resolve_json_path(global_data, sub_path)
-                    .unwrap_or_else(|| "".to_string())
+                resolve_json_path(global_data, sub_path).unwrap_or_else(|| "".to_string())
             } else {
-                local_item.and_then(|item| resolve_json_path(item, path_expr))
+                local_item
+                    .and_then(|item| resolve_json_path(item, path_expr))
                     .or_else(|| resolve_json_path(global_data, path_expr))
                     .unwrap_or_else(|| "".to_string())
             };
-            
+
             result = result.replace(full_expr, &resolved_val);
         } else {
             break;
@@ -3825,7 +5527,7 @@ fn resolve_string_templates(template: &str, local_item: Option<&serde_json::Valu
 fn resolve_json_path(val: &serde_json::Value, path: &str) -> Option<String> {
     let mut current = val;
     let parts = path.split('.');
-    
+
     for part in parts {
         if part.contains('[') && part.contains(']') {
             let open_idx = part.find('[')?;
@@ -3833,7 +5535,7 @@ fn resolve_json_path(val: &serde_json::Value, path: &str) -> Option<String> {
             let key = &part[..open_idx];
             let idx_str = &part[open_idx + 1..close_idx];
             let idx = idx_str.parse::<usize>().ok()?;
-            
+
             if !key.is_empty() {
                 current = current.get(key)?;
             }
@@ -3842,24 +5544,28 @@ fn resolve_json_path(val: &serde_json::Value, path: &str) -> Option<String> {
             current = current.get(part)?;
         }
     }
-    
+
     match current {
         serde_json::Value::String(s) => Some(s.clone()),
         serde_json::Value::Number(n) => Some(n.to_string()),
-        serde_json::Value::Bool(b)   => Some(b.to_string()),
-        serde_json::Value::Null      => Some("".to_string()),
-        other                        => Some(other.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        serde_json::Value::Null => Some("".to_string()),
+        other => Some(other.to_string()),
     }
 }
 
-fn resolve_json_templates(val: &serde_json::Value, local_item: Option<&serde_json::Value>, global_data: &serde_json::Value) -> serde_json::Value {
+fn resolve_json_templates(
+    val: &serde_json::Value,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> serde_json::Value {
     match val {
         serde_json::Value::String(s) => {
             let trimmed = s.trim();
             if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
                 let expr = trimmed[2..trimmed.len() - 2].trim();
                 let expr_lower = expr.to_lowercase();
-                
+
                 let resolved = if expr_lower.starts_with("item.") {
                     let sub_path = &expr[5..];
                     local_item.and_then(|item| resolve_json_value_path(item, sub_path))
@@ -3879,10 +5585,11 @@ fn resolve_json_templates(val: &serde_json::Value, local_item: Option<&serde_jso
                     let sub_path = &expr[5..];
                     resolve_json_value_path(global_data, sub_path)
                 } else {
-                    local_item.and_then(|item| resolve_json_value_path(item, expr))
+                    local_item
+                        .and_then(|item| resolve_json_value_path(item, expr))
                         .or_else(|| resolve_json_value_path(global_data, expr))
                 };
-                
+
                 if let Some(v) = resolved {
                     return v;
                 }
@@ -3892,12 +5599,16 @@ fn resolve_json_templates(val: &serde_json::Value, local_item: Option<&serde_jso
         serde_json::Value::Object(map) => {
             let mut resolved_map = serde_json::Map::new();
             for (k, v) in map {
-                resolved_map.insert(k.clone(), resolve_json_templates(v, local_item, global_data));
+                resolved_map.insert(
+                    k.clone(),
+                    resolve_json_templates(v, local_item, global_data),
+                );
             }
             serde_json::Value::Object(resolved_map)
         }
         serde_json::Value::Array(arr) => {
-            let resolved_arr = arr.iter()
+            let resolved_arr = arr
+                .iter()
                 .map(|item| resolve_json_templates(item, local_item, global_data))
                 .collect();
             serde_json::Value::Array(resolved_arr)
@@ -3906,10 +5617,13 @@ fn resolve_json_templates(val: &serde_json::Value, local_item: Option<&serde_jso
     }
 }
 
-pub(crate) fn resolve_array_path(val: &serde_json::Value, path: &str) -> Option<Vec<serde_json::Value>> {
+pub(crate) fn resolve_array_path(
+    val: &serde_json::Value,
+    path: &str,
+) -> Option<Vec<serde_json::Value>> {
     let mut current = val;
     let parts = path.split('.');
-    
+
     for part in parts {
         if part.contains('[') && part.contains(']') {
             let open_idx = part.find('[')?;
@@ -3917,7 +5631,7 @@ pub(crate) fn resolve_array_path(val: &serde_json::Value, path: &str) -> Option<
             let key = &part[..open_idx];
             let idx_str = &part[open_idx + 1..close_idx];
             let idx = idx_str.parse::<usize>().ok()?;
-            
+
             if !key.is_empty() {
                 current = current.get(key)?;
             }
@@ -3926,10 +5640,9 @@ pub(crate) fn resolve_array_path(val: &serde_json::Value, path: &str) -> Option<
             current = current.get(part)?;
         }
     }
-    
+
     current.as_array().cloned()
 }
-
 
 // ── DynamicTable ──────────────────────────────────────────────────────────────
 
@@ -3966,7 +5679,14 @@ fn extract_array(parsed: &serde_json::Value, tkey: &str) -> Option<Vec<serde_jso
 
     // 3. Check if the parsed object is an Object, and search keys
     if let Some(obj) = parsed.as_object() {
-        for key in &["data", "rows", "result", "items", "output_data", "outputData"] {
+        for key in &[
+            "data",
+            "rows",
+            "result",
+            "items",
+            "output_data",
+            "outputData",
+        ] {
             if let Some(val) = obj.get(*key) {
                 if let Some(arr) = val.as_array() {
                     return Some(arr.clone());
@@ -4046,41 +5766,88 @@ fn Hooked_DynamicTable(
     #[props(default)] on_drag_start: Option<EventHandler<(String, f64, f64)>>,
 ) -> Element {
     // --- Parse config from props extra/columns, checking both direct and extra fields ---
-    let api_url   = node.props.extra.get("apiUrl").and_then(|v| v.as_str())
+    let api_url = node
+        .props
+        .extra
+        .get("apiUrl")
+        .and_then(|v| v.as_str())
         .or_else(|| node.props.extra.get("api_url").and_then(|v| v.as_str()))
-        .unwrap_or("").to_string();
+        .unwrap_or("")
+        .to_string();
 
-    let method    = node.props.method.clone()
-        .or_else(|| node.props.extra.get("method").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    let method = node
+        .props
+        .method
+        .clone()
+        .or_else(|| {
+            node.props
+                .extra
+                .get("method")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| "POST".to_string());
 
-    let target_key = node.props.extra.get("targetKey").and_then(|v| v.as_str())
+    let target_key = node
+        .props
+        .extra
+        .get("targetKey")
+        .and_then(|v| v.as_str())
         .or_else(|| node.props.extra.get("target_key").and_then(|v| v.as_str()))
-        .unwrap_or("result").to_string();
+        .unwrap_or("result")
+        .to_string();
 
-    let req_body  = node.props.request_body.clone()
+    let req_body = node
+        .props
+        .request_body
+        .clone()
         .or_else(|| node.props.extra.get("requestBody").cloned())
         .or_else(|| node.props.extra.get("request_body").cloned())
         .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
 
-    let show_search = node.props.extra.get("showSearchBar").and_then(|v| v.as_bool()).unwrap_or(true);
-    let search_ph  = node.props.extra.get("searchPlaceholder").and_then(|v| v.as_str()).unwrap_or("Search...").to_string();
-    let page_size  = node.props.extra.get("pageSize").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+    let show_search = node
+        .props
+        .extra
+        .get("showSearchBar")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let search_ph = node
+        .props
+        .extra
+        .get("searchPlaceholder")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Search...")
+        .to_string();
+    let page_size = node
+        .props
+        .extra
+        .get("pageSize")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
     let on_load_actions = node.on_load.clone();
 
     // Column definitions: array of {key, label} objects
-    let col_defs: Vec<ColDef> = node.props.columns.clone()
+    let col_defs: Vec<ColDef> = node
+        .props
+        .columns
+        .clone()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| {
-            let key   = c.get("key").and_then(|v| v.as_str())?.to_string();
-            let label = c.get("label").and_then(|v| v.as_str()).unwrap_or(&key).to_string();
+            let key = c.get("key").and_then(|v| v.as_str())?.to_string();
+            let label = c
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&key)
+                .to_string();
             Some(ColDef { key, label })
         })
         .collect();
 
-    let row_action_node: Option<ComponentNode> = node.props.extra
+    let row_action_node: Option<ComponentNode> = node
+        .props
+        .extra
         .get("rowActionComponent")
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
@@ -4096,21 +5863,24 @@ fn Hooked_DynamicTable(
     let mut error_msg = use_signal(|| Option::<String>::None);
 
     // --- Fetch on mount ---
-    let fetch_url   = api_url.clone();
+    let fetch_url = api_url.clone();
     let fetch_method = method.clone();
-    let fetch_body  = req_body.clone();
-    let fetch_tkey  = target_key.clone();
+    let fetch_body = req_body.clone();
+    let fetch_tkey = target_key.clone();
     use_effect(move || {
-        let url    = fetch_url.clone();
-        let meth   = fetch_method.clone();
-        let body   = fetch_body.clone();
-        let tkey   = fetch_tkey.clone();
+        let url = fetch_url.clone();
+        let meth = fetch_method.clone();
+        let body = fetch_body.clone();
+        let tkey = fetch_tkey.clone();
         // Fire onLoad actions first
         let ol = on_load_actions.clone();
         let item = local_item.clone();
         spawn(async move {
             execute_actions(ol, data_state, item).await;
-            if url.is_empty() { *loading.write() = false; return; }
+            if url.is_empty() {
+                *loading.write() = false;
+                return;
+            }
 
             #[cfg(target_arch = "wasm32")]
             {
@@ -4134,7 +5904,13 @@ fn Hooked_DynamicTable(
                     }
                 };
                 let _ = request.headers().set("Content-Type", "application/json");
-                let window = match web_sys::window() { Some(w) => w, None => { *loading.write() = false; return; } };
+                let window = match web_sys::window() {
+                    Some(w) => w,
+                    None => {
+                        *loading.write() = false;
+                        return;
+                    }
+                };
                 let resp_val = match JsFuture::from(window.fetch_with_request(&request)).await {
                     Ok(v) => v,
                     Err(e) => {
@@ -4145,35 +5921,50 @@ fn Hooked_DynamicTable(
                 };
                 let resp: Response = match resp_val.dyn_into() {
                     Ok(r) => r,
-                    Err(_) => { *loading.write() = false; return; }
+                    Err(_) => {
+                        *loading.write() = false;
+                        return;
+                    }
                 };
                 let json_val = match JsFuture::from(resp.json().unwrap()).await {
                     Ok(v) => v,
-                    Err(_) => { *loading.write() = false; return; }
+                    Err(_) => {
+                        *loading.write() = false;
+                        return;
+                    }
                 };
                 let json_str = match js_sys::JSON::stringify(&json_val) {
                     Ok(s) => String::from(s),
-                    Err(_) => { *loading.write() = false; return; }
+                    Err(_) => {
+                        *loading.write() = false;
+                        return;
+                    }
                 };
-                let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
                 if let Some(arr) = extract_array(&parsed, &tkey) {
                     *rows.write() = arr;
                 }
             }
 
             #[cfg(not(target_arch = "wasm32"))]
-            { *rows.write() = vec![]; }
+            {
+                *rows.write() = vec![];
+            }
 
             *loading.write() = false;
         });
     });
 
-
     // --- Derived: filtered rows ---
     let q = search_query.read().to_lowercase();
-    let filtered: Vec<serde_json::Value> = rows.read().iter()
+    let filtered: Vec<serde_json::Value> = rows
+        .read()
+        .iter()
         .filter(|row| {
-            if q.is_empty() { return true; }
+            if q.is_empty() {
+                return true;
+            }
             col_defs.iter().any(|cd| {
                 let cell_val = resolve_cell_value(row, &cd.key);
                 val_to_css(&cell_val).to_lowercase().contains(&q)
@@ -4182,13 +5973,17 @@ fn Hooked_DynamicTable(
         .cloned()
         .collect();
 
-    let total_pages = if page_size == 0 { 1 } else { ((filtered.len() + page_size - 1).max(1) / page_size).max(1) };
+    let total_pages = if page_size == 0 {
+        1
+    } else {
+        ((filtered.len() + page_size - 1).max(1) / page_size).max(1)
+    };
     let active_page = current_page().min(total_pages - 1);
     let page_rows = if page_size == 0 {
         filtered.clone()
     } else {
-        let page_start  = active_page * page_size;
-        let page_end    = (page_start + page_size).min(filtered.len());
+        let page_start = active_page * page_size;
+        let page_end = (page_start + page_size).min(filtered.len());
         if filtered.is_empty() || page_start >= filtered.len() {
             vec![]
         } else {
@@ -4197,7 +5992,13 @@ fn Hooked_DynamicTable(
     };
 
     let has_action_col = row_action_node.is_some();
-    let action_col_w   = node.props.extra.get("actionColumnWidth").and_then(|v| v.as_str()).unwrap_or("120px").to_string();
+    let action_col_w = node
+        .props
+        .extra
+        .get("actionColumnWidth")
+        .and_then(|v| v.as_str())
+        .unwrap_or("120px")
+        .to_string();
 
     let wrapper_style = format!("background:#fff; border-radius:12px; border:1px solid rgba(0,0,0,0.08); font-family:'Outfit',sans-serif; box-shadow:0 10px 25px -5px rgba(0,0,0,0.06); overflow:hidden; display:flex; flex-direction:column; {}", styles);
 
@@ -4355,7 +6156,6 @@ fn Hooked_DynamicTable(
     }
 }
 
-
 #[component]
 fn Hooked_Tabs(
     node: ComponentNode,
@@ -4364,18 +6164,25 @@ fn Hooked_Tabs(
     on_select: Option<EventHandler<String>>,
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
-    #[props(default)]
-    on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
-    #[props(default)]
-    on_drag_start: Option<EventHandler<(String, f64, f64)>>,
+    #[props(default)] on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
+    #[props(default)] on_drag_start: Option<EventHandler<(String, f64, f64)>>,
 ) -> Element {
     // Filter out children that are Tabs/Tab
-    let tabs_meta: Vec<(String, String)> = node.children.iter()
+    let tabs_meta: Vec<(String, String)> = node
+        .children
+        .iter()
         .filter(|c| c.component_type == "Tab")
         .enumerate()
         .map(|(idx, c)| {
-            let label = c.props.label.clone().unwrap_or_else(|| format!("Tab {}", idx + 1));
-            let value = c.props.value.clone()
+            let label = c
+                .props
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("Tab {}", idx + 1));
+            let value = c
+                .props
+                .value
+                .clone()
                 .and_then(|v| match v {
                     serde_json::Value::String(s) => Some(s),
                     other => Some(other.to_string()),
@@ -4390,7 +6197,10 @@ fn Hooked_Tabs(
         if tabs_meta.iter().any(|(_, val)| val == &raw_default) {
             raw_default
         } else {
-            tabs_meta.first().map(|(_, val)| val.clone()).unwrap_or_else(|| "tab0".to_string())
+            tabs_meta
+                .first()
+                .map(|(_, val)| val.clone())
+                .unwrap_or_else(|| "tab0".to_string())
         }
     };
     let mut active_tab = use_signal(move || default_tab.clone());
@@ -4398,10 +6208,15 @@ fn Hooked_Tabs(
     let base_style = "display: flex; flex-direction: column; font-family: 'Outfit', sans-serif;";
     let tab_container_style = format!("{} {}", base_style, styles);
 
-    let active_tab_node = node.children.iter()
+    let active_tab_node = node
+        .children
+        .iter()
         .filter(|c| c.component_type == "Tab")
         .find(|c| {
-            let val = c.props.value.clone()
+            let val = c
+                .props
+                .value
+                .clone()
                 .and_then(|v| match v {
                     serde_json::Value::String(s) => Some(s),
                     other => Some(other.to_string()),
@@ -4411,14 +6226,17 @@ fn Hooked_Tabs(
         })
         .cloned()
         .or_else(|| {
-            node.children.iter().find(|c| c.component_type == "Tab").cloned()
+            node.children
+                .iter()
+                .find(|c| c.component_type == "Tab")
+                .cloned()
         });
 
     rsx! {
         div {
             id: "{node.id}",
             style: "{tab_container_style}",
-            
+
             // Tab Headers
             div {
                 style: "display: flex; border-bottom: 2px solid #e2e8f0; margin-bottom: 14px; gap: 8px;",
@@ -4463,7 +6281,6 @@ fn Hooked_Tabs(
     }
 }
 
-
 #[component]
 fn Hooked_HierarchyTable(
     node: ComponentNode,
@@ -4473,86 +6290,88 @@ fn Hooked_HierarchyTable(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let columns: Vec<String> = node.props.columns.clone()
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_else(|| vec!["Item".to_string(), "Status".to_string()]);
-            let mut expanded = use_signal(|| vec![true, false]);
+    let columns: Vec<String> = node
+        .props
+        .columns
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_else(|| vec!["Item".to_string(), "Status".to_string()]);
+    let mut expanded = use_signal(|| vec![true, false]);
 
-            let base_style = "border-collapse: collapse; text-align: left; background-color: #ffffff; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);";
-            let h_table_style = format!("{} {}", base_style, styles);
+    let base_style = "border-collapse: collapse; text-align: left; background-color: #ffffff; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);";
+    let h_table_style = format!("{} {}", base_style, styles);
 
-            let expand_icon0 = if expanded()[0] { "▼" } else { "▶" };
-            let expand_icon1 = if expanded()[1] { "▼" } else { "▶" };
+    let expand_icon0 = if expanded()[0] { "▼" } else { "▶" };
+    let expand_icon1 = if expanded()[1] { "▼" } else { "▶" };
 
-            rsx! {
-                table {
-                    id: "{node.id}",
-                    style: "{h_table_style}",
-                    thead {
-                        tr {
-                            style: "background-color: #f8fafc; border-bottom: 1px solid rgba(0,0,0,0.08);",
-                            for col in &columns {
-                                th { style: "padding: 12px 18px; font-weight: 700; color: #64748b; font-size: 12px;", "{col}" }
-                            }
-                        }
-                    }
-                    tbody {
-                        // Level 0 Row
-                        tr {
-                            style: "background-color: #ffffff; font-weight: 600;",
-                            td {
-                                style: "padding: 12px 18px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0f172a;",
-                                onclick: move |_| {
-                                    let mut e = expanded.read().clone();
-                                    e[0] = !e[0];
-                                    *expanded.write() = e;
-                                },
-                                span { "{expand_icon0}" }
-                                "📦 Root Project Branch"
-                            }
-                            td { style: "padding: 12px 18px; color: #166534;", "OK" }
-                        }
-                        // Level 1 Child Rows
-                        if expanded()[0] {
-                            tr {
-                                style: "background-color: #f8fafc; font-size: 13px;",
-                                td {
-                                    style: "padding: 10px 18px 10px 36px; color: #334155;",
-                                    "📄 index.css"
-                                }
-                                td { style: "padding: 10px 18px; color: #166534;", "Loaded" }
-                            }
-                            tr {
-                                style: "background-color: #f8fafc; font-size: 13px;",
-                                td {
-                                    style: "padding: 10px 18px 10px 36px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #334155;",
-                                    onclick: move |_| {
-                                        let mut e = expanded.read().clone();
-                                        e[1] = !e[1];
-                                        *expanded.write() = e;
-                                    },
-                                    span { "{expand_icon1}" }
-                                    "📁 modules/"
-                                }
-                                td { style: "padding: 10px 18px; color: #075985;", "Active" }
-                            }
-                        }
-                        // Level 2 Child Rows
-                        if expanded()[0] && expanded()[1] {
-                            tr {
-                                style: "background-color: #f1f5f9; font-size: 12px; color: #475569;",
-                                td {
-                                    style: "padding: 8px 18px 8px 56px;",
-                                    "⚙️ core.rs"
-                                }
-                                td { style: "padding: 8px 18px; color: #166534;", "Synced" }
-                            }
-                        }
+    rsx! {
+        table {
+            id: "{node.id}",
+            style: "{h_table_style}",
+            thead {
+                tr {
+                    style: "background-color: #f8fafc; border-bottom: 1px solid rgba(0,0,0,0.08);",
+                    for col in &columns {
+                        th { style: "padding: 12px 18px; font-weight: 700; color: #64748b; font-size: 12px;", "{col}" }
                     }
                 }
             }
+            tbody {
+                // Level 0 Row
+                tr {
+                    style: "background-color: #ffffff; font-weight: 600;",
+                    td {
+                        style: "padding: 12px 18px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0f172a;",
+                        onclick: move |_| {
+                            let mut e = expanded.read().clone();
+                            e[0] = !e[0];
+                            *expanded.write() = e;
+                        },
+                        span { "{expand_icon0}" }
+                        "📦 Root Project Branch"
+                    }
+                    td { style: "padding: 12px 18px; color: #166534;", "OK" }
+                }
+                // Level 1 Child Rows
+                if expanded()[0] {
+                    tr {
+                        style: "background-color: #f8fafc; font-size: 13px;",
+                        td {
+                            style: "padding: 10px 18px 10px 36px; color: #334155;",
+                            "📄 index.css"
+                        }
+                        td { style: "padding: 10px 18px; color: #166534;", "Loaded" }
+                    }
+                    tr {
+                        style: "background-color: #f8fafc; font-size: 13px;",
+                        td {
+                            style: "padding: 10px 18px 10px 36px; display: flex; align-items: center; gap: 8px; cursor: pointer; color: #334155;",
+                            onclick: move |_| {
+                                let mut e = expanded.read().clone();
+                                e[1] = !e[1];
+                                *expanded.write() = e;
+                            },
+                            span { "{expand_icon1}" }
+                            "📁 modules/"
+                        }
+                        td { style: "padding: 10px 18px; color: #075985;", "Active" }
+                    }
+                }
+                // Level 2 Child Rows
+                if expanded()[0] && expanded()[1] {
+                    tr {
+                        style: "background-color: #f1f5f9; font-size: 12px; color: #475569;",
+                        td {
+                            style: "padding: 8px 18px 8px 56px;",
+                            "⚙️ core.rs"
+                        }
+                        td { style: "padding: 8px 18px; color: #166534;", "Synced" }
+                    }
+                }
+            }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_TimeViewer(
@@ -4563,94 +6382,121 @@ fn Hooked_TimeViewer(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Time".to_string());
-            let live = node.props.live.unwrap_or(true);
-            let show_seconds = node.props.show_seconds.unwrap_or(false);
-            let use12_hour = node.props.use12_hour.unwrap_or(true);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Time".to_string());
+    let live = node.props.live.unwrap_or(true);
+    let show_seconds = node.props.show_seconds.unwrap_or(false);
+    let use12_hour = node.props.use12_hour.unwrap_or(true);
 
-            let mut time_str = use_signal(move || {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let date = js_sys::Date::new_0();
-                    let hours = date.get_hours();
-                    let minutes = date.get_minutes();
-                    let seconds = date.get_seconds();
+    let mut time_str = use_signal(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let date = js_sys::Date::new_0();
+            let hours = date.get_hours();
+            let minutes = date.get_minutes();
+            let seconds = date.get_seconds();
 
-                    let ampm = if hours >= 12 { "PM" } else { "AM" };
-                    let display_hours = if use12_hour {
-                        let h = hours % 12;
-                        if h == 0 { 12 } else { h }
-                    } else {
-                        hours
-                    };
-
-                    let min_str = format!("{:02}", minutes);
-                    let sec_str = if show_seconds { format!(":{:02}", seconds) } else { "".to_string() };
-                    let ampm_str = if use12_hour { format!(" {}", ampm) } else { "".to_string() };
-
-                    format!("{:02}:{}{}{}", display_hours, min_str, sec_str, ampm_str)
+            let ampm = if hours >= 12 { "PM" } else { "AM" };
+            let display_hours = if use12_hour {
+                let h = hours % 12;
+                if h == 0 {
+                    12
+                } else {
+                    h
                 }
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    "12:00 PM".to_string()
-                }
-            });
+            } else {
+                hours
+            };
 
-            if live {
-                use_future(move || async move {
-                    loop {
-                        gloo_timers::future::TimeoutFuture::new(1000).await;
-                        let time_now = {
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                let date = js_sys::Date::new_0();
-                                let hours = date.get_hours();
-                                let minutes = date.get_minutes();
-                                let seconds = date.get_seconds();
+            let min_str = format!("{:02}", minutes);
+            let sec_str = if show_seconds {
+                format!(":{:02}", seconds)
+            } else {
+                "".to_string()
+            };
+            let ampm_str = if use12_hour {
+                format!(" {}", ampm)
+            } else {
+                "".to_string()
+            };
 
-                                let ampm = if hours >= 12 { "PM" } else { "AM" };
-                                let display_hours = if use12_hour {
-                                    let h = hours % 12;
-                                    if h == 0 { 12 } else { h }
-                                } else {
-                                    hours
-                                };
+            format!("{:02}:{}{}{}", display_hours, min_str, sec_str, ampm_str)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "12:00 PM".to_string()
+        }
+    });
 
-                                let min_str = format!("{:02}", minutes);
-                                let sec_str = if show_seconds { format!(":{:02}", seconds) } else { "".to_string() };
-                                let ampm_str = if use12_hour { format!(" {}", ampm) } else { "".to_string() };
+    if live {
+        use_future(move || async move {
+            loop {
+                gloo_timers::future::TimeoutFuture::new(1000).await;
+                let time_now = {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let date = js_sys::Date::new_0();
+                        let hours = date.get_hours();
+                        let minutes = date.get_minutes();
+                        let seconds = date.get_seconds();
 
-                                format!("{:02}:{}{}{}", display_hours, min_str, sec_str, ampm_str)
+                        let ampm = if hours >= 12 { "PM" } else { "AM" };
+                        let display_hours = if use12_hour {
+                            let h = hours % 12;
+                            if h == 0 {
+                                12
+                            } else {
+                                h
                             }
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                "12:00 PM".to_string()
-                            }
+                        } else {
+                            hours
                         };
-                        *time_str.write() = time_now;
-                    }
-                });
-            }
 
-            let base_style = "display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: var(--radius, 12px); padding: 16px; border: 1px solid rgba(255,255,255,0.05); font-family: 'Outfit', sans-serif; box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15); color: #ffffff;";
-            let time_viewer_style = format!("{} {}", base_style, styles);
+                        let min_str = format!("{:02}", minutes);
+                        let sec_str = if show_seconds {
+                            format!(":{:02}", seconds)
+                        } else {
+                            "".to_string()
+                        };
+                        let ampm_str = if use12_hour {
+                            format!(" {}", ampm)
+                        } else {
+                            "".to_string()
+                        };
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{time_viewer_style}",
-                    span {
-                        style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #94a3b8; margin-bottom: 4px; font-weight: 600;",
-                        "{label}"
+                        format!("{:02}:{}{}{}", display_hours, min_str, sec_str, ampm_str)
                     }
-                    span {
-                        style: "font-size: 24px; font-weight: 700; font-family: monospace; letter-spacing: 0.02em; color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.2);",
-                        "{time_str}"
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        "12:00 PM".to_string()
                     }
-                }
+                };
+                *time_str.write() = time_now;
             }
+        });
+    }
+
+    let base_style = "display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: var(--radius, 12px); padding: 16px; border: 1px solid rgba(255,255,255,0.05); font-family: 'Outfit', sans-serif; box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15); color: #ffffff;";
+    let time_viewer_style = format!("{} {}", base_style, styles);
+
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{time_viewer_style}",
+            span {
+                style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #94a3b8; margin-bottom: 4px; font-weight: 600;",
+                "{label}"
+            }
+            span {
+                style: "font-size: 24px; font-weight: 700; font-family: monospace; letter-spacing: 0.02em; color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.2);",
+                "{time_str}"
+            }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_ImageGallery(
@@ -4662,50 +6508,49 @@ fn Hooked_ImageGallery(
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
     let mut active_idx = use_signal(|| 0);
-            let images = vec![
-                "https://picsum.photos/id/10/400/250",
-                "https://picsum.photos/id/20/400/250",
-                "https://picsum.photos/id/30/400/250",
-                "https://picsum.photos/id/40/400/250"
-            ];
+    let images = vec![
+        "https://picsum.photos/id/10/400/250",
+        "https://picsum.photos/id/20/400/250",
+        "https://picsum.photos/id/30/400/250",
+        "https://picsum.photos/id/40/400/250",
+    ];
 
-            let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 340px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
-            let gallery_style = format!("{} {}", base_style, styles);
+    let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 340px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
+    let gallery_style = format!("{} {}", base_style, styles);
 
-            let active_src = images[active_idx()];
+    let active_src = images[active_idx()];
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{gallery_style}",
-                    // Large Preview
-                    img {
-                        src: "{active_src}",
-                        style: "width: 100%; height: 180px; border-radius: 8px; object-fit: cover; border: 1px solid rgba(0,0,0,0.05); transition: opacity 0.2s;",
-                    }
-                    // Thumbnail Grid
-                    div {
-                        style: "display: flex; gap: 8px;",
-                        for (i, img) in images.iter().enumerate() {
-                            {
-                                let is_active = i == active_idx();
-                                let border_col = if is_active { "#3b82f6" } else { "transparent" };
-                                let transform_style = if is_active { "scale(1.05)" } else { "none" };
-                                rsx! {
-                                    img {
-                                        key: "{img}",
-                                        src: "{img}",
-                                        style: "width: 60px; height: 40px; border-radius: 4px; object-fit: cover; cursor: pointer; border: 2px solid {border_col}; transform: {transform_style}; transition: all 0.2s;",
-                                        onclick: move |_| *active_idx.write() = i,
-                                    }
-                                }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{gallery_style}",
+            // Large Preview
+            img {
+                src: "{active_src}",
+                style: "width: 100%; height: 180px; border-radius: 8px; object-fit: cover; border: 1px solid rgba(0,0,0,0.05); transition: opacity 0.2s;",
+            }
+            // Thumbnail Grid
+            div {
+                style: "display: flex; gap: 8px;",
+                for (i, img) in images.iter().enumerate() {
+                    {
+                        let is_active = i == active_idx();
+                        let border_col = if is_active { "#3b82f6" } else { "transparent" };
+                        let transform_style = if is_active { "scale(1.05)" } else { "none" };
+                        rsx! {
+                            img {
+                                key: "{img}",
+                                src: "{img}",
+                                style: "width: 60px; height: 40px; border-radius: 4px; object-fit: cover; cursor: pointer; border: 2px solid {border_col}; transform: {transform_style}; transition: all 0.2s;",
+                                onclick: move |_| *active_idx.write() = i,
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_ImageWithAnnotations(
@@ -4717,59 +6562,58 @@ fn Hooked_ImageWithAnnotations(
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
     let mut active_annotation = use_signal(|| None::<usize>);
-            let img_src = "https://picsum.photos/id/29/400/250";
+    let img_src = "https://picsum.photos/id/29/400/250";
 
-            let base_style = "position: relative; border-radius: 12px; overflow: hidden; max-width: 100%; display: block; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif;";
-            let container_style = format!("{} {}", base_style, styles);
+    let base_style = "position: relative; border-radius: 12px; overflow: hidden; max-width: 100%; display: block; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif;";
+    let container_style = format!("{} {}", base_style, styles);
 
-            // Mock Hotspots
-            let hotspots = vec![
-                (20.0, 30.0, "Camera Lens Sensor"),
-                (70.0, 50.0, "Focus Control Dial")
-            ];
+    // Mock Hotspots
+    let hotspots = vec![
+        (20.0, 30.0, "Camera Lens Sensor"),
+        (70.0, 50.0, "Focus Control Dial"),
+    ];
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{container_style}",
-                    img {
-                        src: "{img_src}",
-                        style: "width: 100%; height: auto; display: block;",
-                    }
-                    
-                    // Render Hotspots overlay
-                    for (idx, (y, x, text)) in hotspots.iter().enumerate() {
-                        {
-                            let is_active = active_annotation() == Some(idx);
-                            let bg_color = if is_active { "#ef4444" } else { "#3b82f6" };
-                            let border_style = if is_active { "0 0 0 4px rgba(239, 68, 68, 0.2)" } else { "0 0 0 4px rgba(59, 130, 246, 0.2)" };
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{container_style}",
+            img {
+                src: "{img_src}",
+                style: "width: 100%; height: auto; display: block;",
+            }
 
-                            rsx! {
+            // Render Hotspots overlay
+            for (idx, (y, x, text)) in hotspots.iter().enumerate() {
+                {
+                    let is_active = active_annotation() == Some(idx);
+                    let bg_color = if is_active { "#ef4444" } else { "#3b82f6" };
+                    let border_style = if is_active { "0 0 0 4px rgba(239, 68, 68, 0.2)" } else { "0 0 0 4px rgba(59, 130, 246, 0.2)" };
+
+                    rsx! {
+                        div {
+                            key: "{idx}",
+                            style: "position: absolute; top: {y}%; left: {x}%; width: 14px; height: 14px; border-radius: 50%; background-color: {bg_color}; cursor: pointer; box-shadow: {border_style}; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%); transition: all 0.2s; z-index: 10;",
+                            onclick: move |_| {
+                                if active_annotation() == Some(idx) {
+                                    *active_annotation.write() = None;
+                                } else {
+                                    *active_annotation.write() = Some(idx);
+                                }
+                            },
+
+                            if is_active {
                                 div {
-                                    key: "{idx}",
-                                    style: "position: absolute; top: {y}%; left: {x}%; width: 14px; height: 14px; border-radius: 50%; background-color: {bg_color}; cursor: pointer; box-shadow: {border_style}; display: flex; align-items: center; justify-content: center; transform: translate(-50%, -50%); transition: all 0.2s; z-index: 10;",
-                                    onclick: move |_| {
-                                        if active_annotation() == Some(idx) {
-                                            *active_annotation.write() = None;
-                                        } else {
-                                            *active_annotation.write() = Some(idx);
-                                        }
-                                    },
-                                    
-                                    if is_active {
-                                        div {
-                                            style: "position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); background-color: #0f172a; color: #ffffff; padding: 4px 8px; border-radius: 4px; font-size: 10px; white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                                            "{text}"
-                                        }
-                                    }
+                                    style: "position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); background-color: #0f172a; color: #ffffff; padding: 4px 8px; border-radius: 4px; font-size: 10px; white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
+                                    "{text}"
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_PlaylistPlayer(
@@ -4781,53 +6625,52 @@ fn Hooked_PlaylistPlayer(
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
     let tracks = vec![
-                "Symphony No. 5 in C Minor",
-                "Clair de Lune",
-                "Canon in D Major"
-            ];
-            let mut track_idx = use_signal(|| 0);
+        "Symphony No. 5 in C Minor",
+        "Clair de Lune",
+        "Canon in D Major",
+    ];
+    let mut track_idx = use_signal(|| 0);
 
-            let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 10px; width: 280px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
-            let list_style = format!("{} {}", base_style, styles);
+    let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 10px; width: 280px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
+    let list_style = format!("{} {}", base_style, styles);
 
-            let current_track = &tracks[track_idx()];
+    let current_track = &tracks[track_idx()];
 
-            rsx! {
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{list_style}",
+            div {
+                style: "background-color: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px;",
+                span { style: "font-size: 20px;", "🎵" }
                 div {
-                    id: "{node.id}",
-                    style: "{list_style}",
-                    div {
-                        style: "background-color: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px;",
-                        span { style: "font-size: 20px;", "🎵" }
-                        div {
-                            style: "display: flex; flex-direction: column; min-width: 0;",
-                            span { style: "font-size: 13px; font-weight: 700; color: #0f172a; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;", "{current_track}" }
-                            span { style: "font-size: 11px; color: #94a3b8; font-weight: 500;", "Classic Collection" }
-                        }
-                    }
-                    div {
-                        style: "display: flex; flex-direction: column; gap: 4px;",
-                        for (i, t) in tracks.iter().enumerate() {
-                            {
-                                let is_active = i == track_idx();
-                                let bg_c = if is_active { "#f1f5f9" } else { "transparent" };
-                                let text_c = if is_active { "#3b82f6" } else { "#475569" };
-                                rsx! {
-                                    div {
-                                        key: "{t}",
-                                        style: "padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; background-color: {bg_c}; color: {text_c}; display: flex; justify-content: space-between;",
-                                        onclick: move |_| *track_idx.write() = i,
-                                        span { "{t}" }
-                                        if is_active { span { "Playing" } }
-                                    }
-                                }
+                    style: "display: flex; flex-direction: column; min-width: 0;",
+                    span { style: "font-size: 13px; font-weight: 700; color: #0f172a; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;", "{current_track}" }
+                    span { style: "font-size: 11px; color: #94a3b8; font-weight: 500;", "Classic Collection" }
+                }
+            }
+            div {
+                style: "display: flex; flex-direction: column; gap: 4px;",
+                for (i, t) in tracks.iter().enumerate() {
+                    {
+                        let is_active = i == track_idx();
+                        let bg_c = if is_active { "#f1f5f9" } else { "transparent" };
+                        let text_c = if is_active { "#3b82f6" } else { "#475569" };
+                        rsx! {
+                            div {
+                                key: "{t}",
+                                style: "padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; background-color: {bg_c}; color: {text_c}; display: flex; justify-content: space-between;",
+                                onclick: move |_| *track_idx.write() = i,
+                                span { "{t}" }
+                                if is_active { span { "Playing" } }
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_KanbanBoard(
@@ -4838,78 +6681,83 @@ fn Hooked_KanbanBoard(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let mut todo = use_signal(|| vec!["Draft Layout Specs".to_string(), "Verify SVG Assets".to_string()]);
-            let mut prog = use_signal(|| vec!["Build Dioxus Models".to_string()]);
-            let mut done = use_signal(|| vec!["Setup Dev Env".to_string()]);
+    let mut todo = use_signal(|| {
+        vec![
+            "Draft Layout Specs".to_string(),
+            "Verify SVG Assets".to_string(),
+        ]
+    });
+    let mut prog = use_signal(|| vec!["Build Dioxus Models".to_string()]);
+    let mut done = use_signal(|| vec!["Setup Dev Env".to_string()]);
 
-            let base_style = "display: flex; gap: 14px; font-family: 'Outfit', sans-serif; box-sizing: border-box;";
-            let board_style = format!("{} {}", base_style, styles);
+    let base_style =
+        "display: flex; gap: 14px; font-family: 'Outfit', sans-serif; box-sizing: border-box;";
+    let board_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{board_style}",
-                    
-                    // Column Todo
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{board_style}",
+
+            // Column Todo
+            div {
+                style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
+                span { style: "font-weight: 700; color: #475569; font-size: 13px; text-transform: uppercase;", "📌 To Do ({todo().len()})" }
+                for item in todo() {
                     div {
-                        style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
-                        span { style: "font-weight: 700; color: #475569; font-size: 13px; text-transform: uppercase;", "📌 To Do ({todo().len()})" }
-                        for item in todo() {
-                            div {
-                                key: "{item}",
-                                style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05); font-size: 12px; color: #1e293b; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
-                                onclick: move |_| {
-                                    let mut t = todo.read().clone();
-                                    t.retain(|x| x != &item);
-                                    *todo.write() = t;
-                                    prog.write().push(item.clone());
-                                },
-                                "{item}"
-                            }
-                        }
-                    }
-
-                    // Column In Progress
-                    div {
-                        style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
-                        span { style: "font-weight: 700; color: #3b82f6; font-size: 13px; text-transform: uppercase;", "⚡ Progress ({prog().len()})" }
-                        for item in prog() {
-                            div {
-                                key: "{item}",
-                                style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(59,130,246,0.1); font-size: 12px; color: #1e293b; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
-                                onclick: move |_| {
-                                    let mut p = prog.read().clone();
-                                    p.retain(|x| x != &item);
-                                    *prog.write() = p;
-                                    done.write().push(item.clone());
-                                },
-                                "{item}"
-                            }
-                        }
-                    }
-
-                    // Column Completed
-                    div {
-                        style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
-                        span { style: "font-weight: 700; color: #10b981; font-size: 13px; text-transform: uppercase;", "✅ Done ({done().len()})" }
-                        for item in done() {
-                            div {
-                                key: "{item}",
-                                style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(16,185,129,0.08); font-size: 12px; color: #94a3b8; text-decoration: line-through; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
-                                onclick: move |_| {
-                                    let mut d = done.read().clone();
-                                    d.retain(|x| x != &item);
-                                    *done.write() = d;
-                                    todo.write().push(item.clone());
-                                },
-                                "{item}"
-                            }
-                        }
+                        key: "{item}",
+                        style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05); font-size: 12px; color: #1e293b; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
+                        onclick: move |_| {
+                            let mut t = todo.read().clone();
+                            t.retain(|x| x != &item);
+                            *todo.write() = t;
+                            prog.write().push(item.clone());
+                        },
+                        "{item}"
                     }
                 }
             }
-}
 
+            // Column In Progress
+            div {
+                style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
+                span { style: "font-weight: 700; color: #3b82f6; font-size: 13px; text-transform: uppercase;", "⚡ Progress ({prog().len()})" }
+                for item in prog() {
+                    div {
+                        key: "{item}",
+                        style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(59,130,246,0.1); font-size: 12px; color: #1e293b; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
+                        onclick: move |_| {
+                            let mut p = prog.read().clone();
+                            p.retain(|x| x != &item);
+                            *prog.write() = p;
+                            done.write().push(item.clone());
+                        },
+                        "{item}"
+                    }
+                }
+            }
+
+            // Column Completed
+            div {
+                style: "flex: 1; background-color: #f8fafc; border-radius: 12px; padding: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 10px; min-width: 140px;",
+                span { style: "font-weight: 700; color: #10b981; font-size: 13px; text-transform: uppercase;", "✅ Done ({done().len()})" }
+                for item in done() {
+                    div {
+                        key: "{item}",
+                        style: "background-color: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(16,185,129,0.08); font-size: 12px; color: #94a3b8; text-decoration: line-through; font-weight: 500; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.01);",
+                        onclick: move |_| {
+                            let mut d = done.read().clone();
+                            d.retain(|x| x != &item);
+                            *done.write() = d;
+                            todo.write().push(item.clone());
+                        },
+                        "{item}"
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[component]
 fn Hooked_ChatViewer(
@@ -4920,71 +6768,80 @@ fn Hooked_ChatViewer(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let mut messages = use_signal(|| vec![
-                ("Sarah".to_string(), "Hi there! Can we test the component state?".to_string(), false),
-                ("Me".to_string(), "Absolutely, Dioxus WebAssembly captures updates immediately!".to_string(), true)
-            ]);
-            let mut text = use_signal(|| "".to_string());
+    let mut messages = use_signal(|| {
+        vec![
+            (
+                "Sarah".to_string(),
+                "Hi there! Can we test the component state?".to_string(),
+                false,
+            ),
+            (
+                "Me".to_string(),
+                "Absolutely, Dioxus WebAssembly captures updates immediately!".to_string(),
+                true,
+            ),
+        ]
+    });
+    let mut text = use_signal(|| "".to_string());
 
-            let base_style = "background-color: #ffffff; border-radius: 12px; padding: 14px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; width: 320px; height: 260px; box-shadow: 0 10px 25px rgba(0,0,0,0.03);";
-            let chat_style = format!("{} {}", base_style, styles);
+    let base_style = "background-color: #ffffff; border-radius: 12px; padding: 14px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; width: 320px; height: 260px; box-shadow: 0 10px 25px rgba(0,0,0,0.03);";
+    let chat_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{chat_style}",
-                    // Message History Box
-                    div {
-                        style: "flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;",
-                        for (user, msg, is_me) in messages() {
-                            {
-                                let self_align = if is_me { "align-self: flex-end; background-color: #3b82f6; color: #ffffff;" } else { "align-self: flex-start; background-color: #f1f5f9; color: #1e293b;" };
-                                rsx! {
-                                    div {
-                                        key: "{msg}",
-                                        style: "padding: 8px 12px; border-radius: 10px; max-width: 80%; font-size: 12.5px; line-height: 1.5; font-weight: 500; {self_align}",
-                                        span { style: "font-weight: 700; font-size: 10px; opacity: 0.8; display: block; margin-bottom: 2px;", "{user}" }
-                                        span { "{msg}" }
-                                    }
-                                }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{chat_style}",
+            // Message History Box
+            div {
+                style: "flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;",
+                for (user, msg, is_me) in messages() {
+                    {
+                        let self_align = if is_me { "align-self: flex-end; background-color: #3b82f6; color: #ffffff;" } else { "align-self: flex-start; background-color: #f1f5f9; color: #1e293b;" };
+                        rsx! {
+                            div {
+                                key: "{msg}",
+                                style: "padding: 8px 12px; border-radius: 10px; max-width: 80%; font-size: 12.5px; line-height: 1.5; font-weight: 500; {self_align}",
+                                span { style: "font-weight: 700; font-size: 10px; opacity: 0.8; display: block; margin-bottom: 2px;", "{user}" }
+                                span { "{msg}" }
                             }
-                        }
-                    }
-
-                    // Input Box
-                    div {
-                        style: "display: flex; gap: 6px; border-top: 1px solid #f1f5f9; padding-top: 8px; margin-top: 4px;",
-                        input {
-                            placeholder: "Type message...",
-                            value: "{text}",
-                            style: "flex-grow: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; font-size: 13px;",
-                            oninput: move |evt| *text.write() = evt.value(),
-                            onkeydown: move |evt| {
-                                if evt.key().to_string() == "Enter" {
-                                    let content = text.read().trim().to_string();
-                                    if !content.is_empty() {
-                                        messages.write().push(("Me".to_string(), content, true));
-                                        *text.write() = "".to_string();
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            style: "padding: 6px 12px; background-color: #3b82f6; color: #ffffff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;",
-                            onclick: move |_| {
-                                let content = text.read().trim().to_string();
-                                if !content.is_empty() {
-                                    messages.write().push(("Me".to_string(), content, true));
-                                    *text.write() = "".to_string();
-                                }
-                            },
-                            "Send"
                         }
                     }
                 }
             }
-}
 
+            // Input Box
+            div {
+                style: "display: flex; gap: 6px; border-top: 1px solid #f1f5f9; padding-top: 8px; margin-top: 4px;",
+                input {
+                    placeholder: "Type message...",
+                    value: "{text}",
+                    style: "flex-grow: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; font-size: 13px;",
+                    oninput: move |evt| *text.write() = evt.value(),
+                    onkeydown: move |evt| {
+                        if evt.key().to_string() == "Enter" {
+                            let content = text.read().trim().to_string();
+                            if !content.is_empty() {
+                                messages.write().push(("Me".to_string(), content, true));
+                                *text.write() = "".to_string();
+                            }
+                        }
+                    }
+                }
+                button {
+                    style: "padding: 6px 12px; background-color: #3b82f6; color: #ffffff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;",
+                    onclick: move |_| {
+                        let content = text.read().trim().to_string();
+                        if !content.is_empty() {
+                            messages.write().push(("Me".to_string(), content, true));
+                            *text.write() = "".to_string();
+                        }
+                    },
+                    "Send"
+                }
+            }
+        }
+    }
+}
 
 #[component]
 fn Hooked_CommentSection(
@@ -4995,54 +6852,56 @@ fn Hooked_CommentSection(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let mut comments = use_signal(|| vec![
-                ("Sarah Jones".to_string(), "Visual canvas scaling works cleanly!".to_string())
-            ]);
-            let mut text = use_signal(|| "".to_string());
+    let mut comments = use_signal(|| {
+        vec![(
+            "Sarah Jones".to_string(),
+            "Visual canvas scaling works cleanly!".to_string(),
+        )]
+    });
+    let mut text = use_signal(|| "".to_string());
 
-            let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
-            let c_style = format!("{} {}", base_style, styles);
+    let base_style = "background-color: #ffffff; border-radius: 12px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; display: flex; flex-direction: column; gap: 12px; width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);";
+    let c_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{c_style}",
-                    span { style: "font-weight: 700; color: #0f172a; font-size: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;", "Comments ({comments().len()})" }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{c_style}",
+            span { style: "font-weight: 700; color: #0f172a; font-size: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;", "Comments ({comments().len()})" }
+            div {
+                style: "display: flex; flex-direction: column; gap: 10px; max-height: 140px; overflow-y: auto;",
+                for (user, msg) in comments() {
                     div {
-                        style: "display: flex; flex-direction: column; gap: 10px; max-height: 140px; overflow-y: auto;",
-                        for (user, msg) in comments() {
-                            div {
-                                key: "{msg}",
-                                style: "background-color: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9; font-size: 12px;",
-                                span { style: "font-weight: 700; color: #0f172a; display: block; margin-bottom: 2px;", "{user}" }
-                                span { style: "color: #475569;", "{msg}" }
-                            }
-                        }
-                    }
-                    div {
-                        style: "display: flex; gap: 6px; border-top: 1px solid #f1f5f9; padding-top: 10px;",
-                        input {
-                            placeholder: "Add comment...",
-                            value: "{text}",
-                            style: "flex-grow: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; outline: none;",
-                            oninput: move |evt| *text.write() = evt.value(),
-                        }
-                        button {
-                            style: "padding: 6px 10px; background-color: #0f172a; color: #ffffff; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;",
-                            onclick: move |_| {
-                                let c = text.read().trim().to_string();
-                                if !c.is_empty() {
-                                    comments.write().push(("Me".to_string(), c));
-                                    *text.write() = "".to_string();
-                                }
-                            },
-                            "Post"
-                        }
+                        key: "{msg}",
+                        style: "background-color: #f8fafc; padding: 8px 10px; border-radius: 8px; border: 1px solid #f1f5f9; font-size: 12px;",
+                        span { style: "font-weight: 700; color: #0f172a; display: block; margin-bottom: 2px;", "{user}" }
+                        span { style: "color: #475569;", "{msg}" }
                     }
                 }
             }
+            div {
+                style: "display: flex; gap: 6px; border-top: 1px solid #f1f5f9; padding-top: 10px;",
+                input {
+                    placeholder: "Add comment...",
+                    value: "{text}",
+                    style: "flex-grow: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; outline: none;",
+                    oninput: move |evt| *text.write() = evt.value(),
+                }
+                button {
+                    style: "padding: 6px 10px; background-color: #0f172a; color: #ffffff; border: none; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;",
+                    onclick: move |_| {
+                        let c = text.read().trim().to_string();
+                        if !c.is_empty() {
+                            comments.write().push(("Me".to_string(), c));
+                            *text.write() = "".to_string();
+                        }
+                    },
+                    "Post"
+                }
+            }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_StarRating(
@@ -5055,35 +6914,35 @@ fn Hooked_StarRating(
 ) -> Element {
     let mut rating = use_signal(|| 3);
 
-            let base_style = "display: flex; flex-direction: column; gap: 4px; font-family: 'Outfit', sans-serif;";
-            let star_style = format!("{} {}", base_style, styles);
+    let base_style =
+        "display: flex; flex-direction: column; gap: 4px; font-family: 'Outfit', sans-serif;";
+    let star_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{star_style}",
-                    span { style: "font-weight: 600; color: #475569; font-size: 13px;", "User Rating" }
-                    div {
-                        style: "display: flex; gap: 4px;",
-                        for i in 1..=5 {
-                            {
-                                let is_active = i <= rating();
-                                let star_color = if is_active { "#f59e0b" } else { "#cbd5e1" };
-                                rsx! {
-                                    span {
-                                        key: "{i}",
-                                        style: "font-size: 22px; cursor: pointer; color: {star_color}; transition: color 0.15s;",
-                                        onclick: move |_| *rating.write() = i,
-                                        "★"
-                                    }
-                                }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{star_style}",
+            span { style: "font-weight: 600; color: #475569; font-size: 13px;", "User Rating" }
+            div {
+                style: "display: flex; gap: 4px;",
+                for i in 1..=5 {
+                    {
+                        let is_active = i <= rating();
+                        let star_color = if is_active { "#f59e0b" } else { "#cbd5e1" };
+                        rsx! {
+                            span {
+                                key: "{i}",
+                                style: "font-size: 22px; cursor: pointer; color: {star_color}; transition: color 0.15s;",
+                                onclick: move |_| *rating.write() = i,
+                                "★"
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_FolderUpload(
@@ -5095,32 +6954,36 @@ fn Hooked_FolderUpload(
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
     let is_folder = node.component_type == "FolderUpload";
-            let label = if is_folder { "Folder Upload" } else { "File Upload" };
-            let mut uploaded = use_signal(|| false);
+    let label = if is_folder {
+        "Folder Upload"
+    } else {
+        "File Upload"
+    };
+    let mut uploaded = use_signal(|| false);
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
-            let upload_style = format!("{} {}", base_style, styles);
+    let base_style =
+        "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
+    let upload_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{upload_style}",
-                    span { style: "font-weight: 600; color: #475569; font-size: 14px;", "{label}" }
-                    div {
-                        style: "height: 90px; border: 2px dashed #cbd5e1; border-radius: 8px; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;",
-                        onclick: move |_| *uploaded.write() = true,
-                        
-                        if uploaded() {
-                            span { style: "font-size: 12px; color: #166534; font-weight: 600;", "✓ Asset Uploaded Successfully" }
-                        } else {
-                            span { style: "font-size: 20px;", "📤" }
-                            span { style: "font-size: 11px; color: #94a3b8;", "Drag & drop files here" }
-                        }
-                    }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{upload_style}",
+            span { style: "font-weight: 600; color: #475569; font-size: 14px;", "{label}" }
+            div {
+                style: "height: 90px; border: 2px dashed #cbd5e1; border-radius: 8px; background-color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;",
+                onclick: move |_| *uploaded.write() = true,
+
+                if uploaded() {
+                    span { style: "font-size: 12px; color: #166534; font-weight: 600;", "✓ Asset Uploaded Successfully" }
+                } else {
+                    span { style: "font-size: 20px;", "📤" }
+                    span { style: "font-size: 11px; color: #94a3b8;", "Drag & drop files here" }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_Accordion(
@@ -5131,89 +6994,99 @@ fn Hooked_Accordion(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let items: Vec<crate::models::AccordionItem> = node.props.data.clone()
-                .and_then(|d| serde_json::from_value(d).ok())
-                .unwrap_or_else(|| vec![
-                    crate::models::AccordionItem {
-                        title: Some("Accordion Section 1".to_string()),
-                        content: Some("Provide high quality custom properties directly in Rust structs.".to_string()),
-                    },
-                    crate::models::AccordionItem {
-                        title: Some("Accordion Section 2".to_string()),
-                        content: Some("Dioxus compiles recursively into clean reactive virtual DOM elements.".to_string()),
-                    }
-                ]);
+    let items: Vec<crate::models::AccordionItem> = node
+        .props
+        .data
+        .clone()
+        .and_then(|d| serde_json::from_value(d).ok())
+        .unwrap_or_else(|| {
+            vec![
+                crate::models::AccordionItem {
+                    title: Some("Accordion Section 1".to_string()),
+                    content: Some(
+                        "Provide high quality custom properties directly in Rust structs."
+                            .to_string(),
+                    ),
+                },
+                crate::models::AccordionItem {
+                    title: Some("Accordion Section 2".to_string()),
+                    content: Some(
+                        "Dioxus compiles recursively into clean reactive virtual DOM elements."
+                            .to_string(),
+                    ),
+                },
+            ]
+        });
 
-            let mut open_indices = use_signal(|| {
-                let mut initial = vec![];
-                if !items.is_empty() {
-                    initial.push(0); // Open first item by default
-                }
-                initial
-            });
+    let mut open_indices = use_signal(|| {
+        let mut initial = vec![];
+        if !items.is_empty() {
+            initial.push(0); // Open first item by default
+        }
+        initial
+    });
 
-            let allow_multiple = node.props.allow_multiple.unwrap_or(false);
-            let base_style = "background-color: #ffffff; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
-            let accordion_style = format!("{} {}", base_style, styles);
+    let allow_multiple = node.props.allow_multiple.unwrap_or(false);
+    let base_style = "background-color: #ffffff; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
+    let accordion_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{accordion_style}",
-                    for (i, item) in items.iter().enumerate() {
-                        {
-                            let is_open = open_indices.read().contains(&i);
-                            let title = item.title.clone().unwrap_or_else(|| format!("Section {}", i + 1));
-                            let content = item.content.clone().unwrap_or_default();
-                            
-                            let header_bg = if is_open { "#f8fafc" } else { "#ffffff" };
-                            let chevron_transform = if is_open { "rotate(180deg)" } else { "rotate(0)" };
-                            
-                            rsx! {
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{accordion_style}",
+            for (i, item) in items.iter().enumerate() {
+                {
+                    let is_open = open_indices.read().contains(&i);
+                    let title = item.title.clone().unwrap_or_else(|| format!("Section {}", i + 1));
+                    let content = item.content.clone().unwrap_or_default();
+
+                    let header_bg = if is_open { "#f8fafc" } else { "#ffffff" };
+                    let chevron_transform = if is_open { "rotate(180deg)" } else { "rotate(0)" };
+
+                    rsx! {
+                        div {
+                            key: "{i}",
+                            style: "border-bottom: 1px solid rgba(0,0,0,0.06);",
+
+                            // Accordion Header
+                            div {
+                                style: "padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; background-color: {header_bg}; transition: background-color 0.2s;",
+                                onclick: move |_| {
+                                    let mut indices = open_indices.read().clone();
+                                    if indices.contains(&i) {
+                                        indices.retain(|&idx| idx != i);
+                                    } else {
+                                        if !allow_multiple {
+                                            indices.clear();
+                                        }
+                                        indices.push(i);
+                                    }
+                                    *open_indices.write() = indices;
+                                },
+                                span {
+                                    style: "font-weight: 600; color: #1e293b;",
+                                    "{title}"
+                                }
+                                span {
+                                    style: "font-size: 12px; transition: transform 0.2s; transform: {chevron_transform}; color: #64748b;",
+                                    "▼"
+                                }
+                            }
+
+                            // Accordion Content
+                            if is_open {
                                 div {
-                                    key: "{i}",
-                                    style: "border-bottom: 1px solid rgba(0,0,0,0.06);",
-                                    
-                                    // Accordion Header
-                                    div {
-                                        style: "padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; background-color: {header_bg}; transition: background-color 0.2s;",
-                                        onclick: move |_| {
-                                            let mut indices = open_indices.read().clone();
-                                            if indices.contains(&i) {
-                                                indices.retain(|&idx| idx != i);
-                                            } else {
-                                                if !allow_multiple {
-                                                    indices.clear();
-                                                }
-                                                indices.push(i);
-                                            }
-                                            *open_indices.write() = indices;
-                                        },
-                                        span {
-                                            style: "font-weight: 600; color: #1e293b;",
-                                            "{title}"
-                                        }
-                                        span {
-                                            style: "font-size: 12px; transition: transform 0.2s; transform: {chevron_transform}; color: #64748b;",
-                                            "▼"
-                                        }
-                                    }
-                                    
-                                    // Accordion Content
-                                    if is_open {
-                                        div {
-                                            style: "padding: 16px 20px; background-color: #ffffff; color: #475569; font-size: 14px; line-height: 1.6; border-top: 1px solid rgba(0,0,0,0.03); animation: slideDown 0.2s ease-out;",
-                                            "{content}"
-                                        }
-                                    }
+                                    style: "padding: 16px 20px; background-color: #ffffff; color: #475569; font-size: 14px; line-height: 1.6; border-top: 1px solid rgba(0,0,0,0.03); animation: slideDown 0.2s ease-out;",
+                                    "{content}"
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_WizardStepper(
@@ -5224,81 +7097,86 @@ fn Hooked_WizardStepper(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let steps = node.props.steps_list.clone().unwrap_or_else(|| vec!["Step 1".to_string(), "Step 2".to_string(), "Step 3".to_string()]);
-            let mut active_step = use_signal(|| 0);
-            
-            let base_style = "background-color: #ffffff; border-radius: var(--radius, 12px); border: 1px solid rgba(0,0,0,0.08); padding: 20px; font-family: 'Outfit', sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
-            let stepper_style = format!("{} {}", base_style, styles);
+    let steps = node.props.steps_list.clone().unwrap_or_else(|| {
+        vec![
+            "Step 1".to_string(),
+            "Step 2".to_string(),
+            "Step 3".to_string(),
+        ]
+    });
+    let mut active_step = use_signal(|| 0);
 
-            let pct = ((active_step() as f64) / ((steps.len() - 1).max(1) as f64)) * 100.0;
-            let width_style = format!("width: {}%;", pct);
+    let base_style = "background-color: #ffffff; border-radius: var(--radius, 12px); border: 1px solid rgba(0,0,0,0.08); padding: 20px; font-family: 'Outfit', sans-serif; box-shadow: 0 4px 15px rgba(0,0,0,0.03);";
+    let stepper_style = format!("{} {}", base_style, styles);
 
-            rsx! {
+    let pct = ((active_step() as f64) / ((steps.len() - 1).max(1) as f64)) * 100.0;
+    let width_style = format!("width: {}%;", pct);
+
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{stepper_style}",
+
+            // Stepper track
+            div {
+                style: "display: flex; align-items: center; justify-content: space-between; position: relative; width: 100%;",
+
+                // Connector background line
                 div {
-                    id: "{node.id}",
-                    style: "{stepper_style}",
-                    
-                    // Stepper track
-                    div {
-                        style: "display: flex; align-items: center; justify-content: space-between; position: relative; width: 100%;",
-                        
-                        // Connector background line
-                        div {
-                            style: "position: absolute; top: 15px; left: 0; right: 0; height: 3px; background-color: #e2e8f0; z-index: 1;",
-                        }
-                        // Completed active connector line
-                        div {
-                            style: "position: absolute; top: 15px; left: 0; height: 3px; background-color: #3b82f6; z-index: 1; transition: width 0.3s ease; {width_style}",
-                        }
+                    style: "position: absolute; top: 15px; left: 0; right: 0; height: 3px; background-color: #e2e8f0; z-index: 1;",
+                }
+                // Completed active connector line
+                div {
+                    style: "position: absolute; top: 15px; left: 0; height: 3px; background-color: #3b82f6; z-index: 1; transition: width 0.3s ease; {width_style}",
+                }
 
-                        for (i, step_name) in steps.iter().enumerate() {
-                            {
-                                let is_completed = i < active_step();
-                                let is_active = i == active_step();
-                                
-                                let circle_style = if is_completed {
-                                    "background-color: #3b82f6; border-color: #3b82f6; color: #ffffff;"
-                                } else if is_active {
-                                    "background-color: #ffffff; border-color: #3b82f6; color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);"
-                                } else {
-                                    "background-color: #ffffff; border-color: #cbd5e1; color: #64748b;"
-                                };
+                for (i, step_name) in steps.iter().enumerate() {
+                    {
+                        let is_completed = i < active_step();
+                        let is_active = i == active_step();
 
-                                let label_weight = if is_active { "600" } else { "500" };
-                                let label_color = if is_active { "#1e293b" } else { "#64748b" };
+                        let circle_style = if is_completed {
+                            "background-color: #3b82f6; border-color: #3b82f6; color: #ffffff;"
+                        } else if is_active {
+                            "background-color: #ffffff; border-color: #3b82f6; color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);"
+                        } else {
+                            "background-color: #ffffff; border-color: #cbd5e1; color: #64748b;"
+                        };
 
-                                rsx! {
-                                    div {
-                                        key: "{i}",
-                                        style: "display: flex; flex-direction: column; align-items: center; position: relative; z-index: 2; cursor: pointer;",
-                                        onclick: move |_| {
-                                            *active_step.write() = i;
-                                        },
-                                        
-                                        // Number Circle
-                                        div {
-                                            style: "width: 32px; height: 32px; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; transition: all 0.3s; {circle_style}",
-                                            if is_completed {
-                                                "✓"
-                                            } else {
-                                                "{i + 1}"
-                                            }
-                                        }
-                                        
-                                        // Step label
-                                        span {
-                                            style: "margin-top: 8px; font-size: 12px; font-weight: {label_weight}; color: {label_color}; text-align: center; white-space: nowrap;",
-                                            "{step_name}"
-                                        }
+                        let label_weight = if is_active { "600" } else { "500" };
+                        let label_color = if is_active { "#1e293b" } else { "#64748b" };
+
+                        rsx! {
+                            div {
+                                key: "{i}",
+                                style: "display: flex; flex-direction: column; align-items: center; position: relative; z-index: 2; cursor: pointer;",
+                                onclick: move |_| {
+                                    *active_step.write() = i;
+                                },
+
+                                // Number Circle
+                                div {
+                                    style: "width: 32px; height: 32px; border-radius: 50%; border: 2px solid; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; transition: all 0.3s; {circle_style}",
+                                    if is_completed {
+                                        "✓"
+                                    } else {
+                                        "{i + 1}"
                                     }
+                                }
+
+                                // Step label
+                                span {
+                                    style: "margin-top: 8px; font-size: 12px; font-weight: {label_weight}; color: {label_color}; text-align: center; white-space: nowrap;",
+                                    "{step_name}"
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_TagInput(
@@ -5309,79 +7187,86 @@ fn Hooked_TagInput(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Tags".to_string());
-            let placeholder = node.props.placeholder.clone().unwrap_or_else(|| "Add tag...".to_string());
-            let max_tags = node.props.max_tags.unwrap_or(10);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Tags".to_string());
+    let placeholder = node
+        .props
+        .placeholder
+        .clone()
+        .unwrap_or_else(|| "Add tag...".to_string());
+    let max_tags = node.props.max_tags.unwrap_or(10);
 
-            let mut tags = use_signal(|| vec!["React".to_string(), "Rust".to_string(), "WASM".to_string()]);
-            let mut current_input = use_signal(|| "".to_string());
+    let mut tags = use_signal(|| vec!["React".to_string(), "Rust".to_string(), "WASM".to_string()]);
+    let mut current_input = use_signal(|| "".to_string());
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
-            let tag_input_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif; font-size: 14px;";
+    let tag_input_style = format!("{} {}", base_style, styles);
 
-            let tags_len = tags().len();
+    let tags_len = tags().len();
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{tag_input_style}",
-                    label {
-                        style: "font-weight: 600; color: #475569;",
-                        "{label} ({tags_len}/{max_tags})"
-                    }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{tag_input_style}",
+            label {
+                style: "font-weight: 600; color: #475569;",
+                "{label} ({tags_len}/{max_tags})"
+            }
+            div {
+                style: "display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: var(--radius, 10px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; min-height: 44px; align-items: center; box-sizing: border-box;",
+
+                // Render tags
+                for (idx, tag) in tags().iter().enumerate() {
                     div {
-                        style: "display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: var(--radius, 10px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; min-height: 44px; align-items: center; box-sizing: border-box;",
-                        
-                        // Render tags
-                        for (idx, tag) in tags().iter().enumerate() {
-                            div {
-                                key: "{idx}",
-                                style: "display: inline-flex; align-items: center; gap: 4px; background-color: #f1f5f9; color: #334155; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #e2e8f0;",
-                                span { "{tag}" }
-                                span {
-                                    style: "cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: color 0.15s; margin-left: 2px;",
-                                    onclick: move |_| {
-                                        let mut t = tags.read().clone();
-                                        t.remove(idx);
-                                        *tags.write() = t;
-                                    },
-                                    "×"
-                                }
-                            }
+                        key: "{idx}",
+                        style: "display: inline-flex; align-items: center; gap: 4px; background-color: #f1f5f9; color: #334155; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; border: 1px solid #e2e8f0;",
+                        span { "{tag}" }
+                        span {
+                            style: "cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8; transition: color 0.15s; margin-left: 2px;",
+                            onclick: move |_| {
+                                let mut t = tags.read().clone();
+                                t.remove(idx);
+                                *tags.write() = t;
+                            },
+                            "×"
                         }
+                    }
+                }
 
-                        // Text input
-                        if tags().len() < max_tags {
-                            input {
-                                placeholder: "{placeholder}",
-                                style: "border: none; outline: none; padding: 4px; flex-grow: 1; color: #1e293b; font-family: inherit; font-size: 14px; min-width: 80px;",
-                                value: "{current_input}",
-                                oninput: move |evt| {
-                                    *current_input.write() = evt.value();
-                                },
-                                onkeydown: move |evt| {
-                                    let key_str = evt.key().to_string();
-                                    if key_str == "Enter" {
-                                        let val = current_input.read().trim().to_string();
-                                        if !val.is_empty() && !tags.read().contains(&val) {
-                                            let mut t = tags.read().clone();
-                                            t.push(val);
-                                            *tags.write() = t;
-                                            *current_input.write() = "".to_string();
-                                        }
-                                    } else if key_str == "Backspace" && current_input.read().is_empty() && !tags.read().is_empty() {
-                                        let mut t = tags.read().clone();
-                                        t.pop();
-                                        *tags.write() = t;
-                                    }
+                // Text input
+                if tags().len() < max_tags {
+                    input {
+                        placeholder: "{placeholder}",
+                        style: "border: none; outline: none; padding: 4px; flex-grow: 1; color: #1e293b; font-family: inherit; font-size: 14px; min-width: 80px;",
+                        value: "{current_input}",
+                        oninput: move |evt| {
+                            *current_input.write() = evt.value();
+                        },
+                        onkeydown: move |evt| {
+                            let key_str = evt.key().to_string();
+                            if key_str == "Enter" {
+                                let val = current_input.read().trim().to_string();
+                                if !val.is_empty() && !tags.read().contains(&val) {
+                                    let mut t = tags.read().clone();
+                                    t.push(val);
+                                    *tags.write() = t;
+                                    *current_input.write() = "".to_string();
                                 }
+                            } else if key_str == "Backspace" && current_input.read().is_empty() && !tags.read().is_empty() {
+                                let mut t = tags.read().clone();
+                                t.pop();
+                                *tags.write() = t;
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_OtpInput(
@@ -5392,87 +7277,89 @@ fn Hooked_OtpInput(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "OTP Verification".to_string());
-            let length = node.props.length.unwrap_or(6);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "OTP Verification".to_string());
+    let length = node.props.length.unwrap_or(6);
 
-            let mut otp_values = use_signal(move || vec!["".to_string(); length]);
+    let mut otp_values = use_signal(move || vec!["".to_string(); length]);
 
-            let base_style = "display: flex; flex-direction: column; gap: 8px; font-family: 'Outfit', sans-serif; align-items: flex-start;";
-            let otp_style = format!("{} {}", base_style, styles);
+    let base_style = "display: flex; flex-direction: column; gap: 8px; font-family: 'Outfit', sans-serif; align-items: flex-start;";
+    let otp_style = format!("{} {}", base_style, styles);
 
-            let node_id = node.id.clone();
+    let node_id = node.id.clone();
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{otp_style}",
-                    label {
-                        style: "font-weight: 600; color: #475569; font-size: 14px;",
-                        "{label}"
-                    }
-                    div {
-                        style: "display: flex; gap: 8px;",
-                        for i in 0..length {
-                            {
-                                let current_val = otp_values.read()[i].clone();
-                                let input_id = format!("{}_otp_{}", node_id, i);
-                                let next_id = if i + 1 < length { Some(format!("{}_otp_{}", node_id, i + 1)) } else { None };
-                                let prev_id = if i > 0 { Some(format!("{}_otp_{}", node_id, i - 1)) } else { None };
-                                
-                                rsx! {
-                                    input {
-                                        id: "{input_id}",
-                                        key: "{i}",
-                                        r#type: "text",
-                                        maxlength: "1",
-                                        value: "{current_val}",
-                                        style: "width: 44px; height: 44px; text-align: center; font-size: 20px; font-weight: 700; border-radius: var(--radius, 10px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #030213; outline: none; transition: all 0.2s; box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);",
-                                        oninput: move |evt| {
-                                            let val = evt.value();
-                                            let mut current_vals = otp_values.read().clone();
-                                            let last_char = val.chars().last().map(|c| c.to_string()).unwrap_or_default();
-                                            current_vals[i] = last_char.clone();
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{otp_style}",
+            label {
+                style: "font-weight: 600; color: #475569; font-size: 14px;",
+                "{label}"
+            }
+            div {
+                style: "display: flex; gap: 8px;",
+                for i in 0..length {
+                    {
+                        let current_val = otp_values.read()[i].clone();
+                        let input_id = format!("{}_otp_{}", node_id, i);
+                        let next_id = if i + 1 < length { Some(format!("{}_otp_{}", node_id, i + 1)) } else { None };
+                        let prev_id = if i > 0 { Some(format!("{}_otp_{}", node_id, i - 1)) } else { None };
+
+                        rsx! {
+                            input {
+                                id: "{input_id}",
+                                key: "{i}",
+                                r#type: "text",
+                                maxlength: "1",
+                                value: "{current_val}",
+                                style: "width: 44px; height: 44px; text-align: center; font-size: 20px; font-weight: 700; border-radius: var(--radius, 10px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; color: #030213; outline: none; transition: all 0.2s; box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);",
+                                oninput: move |evt| {
+                                    let val = evt.value();
+                                    let mut current_vals = otp_values.read().clone();
+                                    let last_char = val.chars().last().map(|c| c.to_string()).unwrap_or_default();
+                                    current_vals[i] = last_char.clone();
+                                    *otp_values.write() = current_vals;
+
+                                    // Auto-focus next input field
+                                    if !last_char.is_empty() {
+                                        if let Some(ref next_id_str) = next_id {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                let window = web_sys::window().unwrap();
+                                                let document = window.document().unwrap();
+                                                if let Some(next_el) = document.get_element_by_id(next_id_str) {
+                                                    if let Ok(html_el) = next_el.dyn_into::<web_sys::HtmlElement>() {
+                                                        let _ = html_el.focus();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                onkeydown: move |evt| {
+                                    let key_str = evt.key().to_string();
+                                    if key_str == "Backspace" {
+                                        let mut current_vals = otp_values.read().clone();
+                                        if current_vals[i].is_empty() {
+                                            if let Some(ref prev_id_str) = prev_id {
+                                                // Auto-focus previous input field on Backspace if empty
+                                                #[cfg(target_arch = "wasm32")]
+                                                {
+                                                    let window = web_sys::window().unwrap();
+                                                    let document = window.document().unwrap();
+                                                    if let Some(prev_el) = document.get_element_by_id(prev_id_str) {
+                                                        if let Ok(html_el) = prev_el.dyn_into::<web_sys::HtmlElement>() {
+                                                            let _ = html_el.focus();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            current_vals[i] = "".to_string();
                                             *otp_values.write() = current_vals;
-                                            
-                                            // Auto-focus next input field
-                                            if !last_char.is_empty() {
-                                                if let Some(ref next_id_str) = next_id {
-                                                    #[cfg(target_arch = "wasm32")]
-                                                    {
-                                                        let window = web_sys::window().unwrap();
-                                                        let document = window.document().unwrap();
-                                                        if let Some(next_el) = document.get_element_by_id(next_id_str) {
-                                                            if let Ok(html_el) = next_el.dyn_into::<web_sys::HtmlElement>() {
-                                                                let _ = html_el.focus();
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        onkeydown: move |evt| {
-                                            let key_str = evt.key().to_string();
-                                            if key_str == "Backspace" {
-                                                let mut current_vals = otp_values.read().clone();
-                                                if current_vals[i].is_empty() {
-                                                    if let Some(ref prev_id_str) = prev_id {
-                                                        // Auto-focus previous input field on Backspace if empty
-                                                        #[cfg(target_arch = "wasm32")]
-                                                        {
-                                                            let window = web_sys::window().unwrap();
-                                                            let document = window.document().unwrap();
-                                                            if let Some(prev_el) = document.get_element_by_id(prev_id_str) {
-                                                                if let Ok(html_el) = prev_el.dyn_into::<web_sys::HtmlElement>() {
-                                                                    let _ = html_el.focus();
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    current_vals[i] = "".to_string();
-                                                    *otp_values.write() = current_vals;
-                                                }
-                                            }
                                         }
                                     }
                                 }
@@ -5481,8 +7368,9 @@ fn Hooked_OtpInput(
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_ColorPicker(
@@ -5493,57 +7381,68 @@ fn Hooked_ColorPicker(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Theme Color".to_string());
-            let swatches = node.props.swatches.clone().unwrap_or_else(|| vec![
-                "#3b82f6".to_string(),
-                "#10b981".to_string(),
-                "#f59e0b".to_string(),
-                "#ef4444".to_string(),
-                "#8b5cf6".to_string()
-            ]);
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Theme Color".to_string());
+    let swatches = node.props.swatches.clone().unwrap_or_else(|| {
+        vec![
+            "#3b82f6".to_string(),
+            "#10b981".to_string(),
+            "#f59e0b".to_string(),
+            "#ef4444".to_string(),
+            "#8b5cf6".to_string(),
+        ]
+    });
 
-            let mut selected = use_signal(|| swatches.first().cloned().unwrap_or_else(|| "#3b82f6".to_string()));
+    let mut selected = use_signal(|| {
+        swatches
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "#3b82f6".to_string())
+    });
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
-            let cp_style = format!("{} {}", base_style, styles);
+    let base_style =
+        "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
+    let cp_style = format!("{} {}", base_style, styles);
 
-            rsx! {
-                div {
-                    id: "{node.id}",
-                    style: "{cp_style}",
-                    label {
-                        style: "font-weight: 600; color: #475569; font-size: 14px;",
-                        "{label}: "
-                        span {
-                            style: "color: {selected}; font-weight: bold; font-family: monospace;",
-                            "{selected}"
-                        }
-                    }
-                    div {
-                        style: "display: flex; align-items: center; gap: 8px; padding: 6px 0;",
-                        for color in swatches {
-                            {
-                                let is_active = selected() == color;
-                                let border_color = if is_active { "#030213" } else { "transparent" };
-                                let box_shadow = if is_active { "0 0 0 2px rgba(3, 2, 19, 0.15)" } else { "0 2px 4px rgba(0,0,0,0.06)" };
-                                let transform = if is_active { "scale(1.15)" } else { "scale(1)" };
-                                
-                                rsx! {
-                                    div {
-                                        key: "{color}",
-                                        style: "width: 28px; height: 28px; border-radius: 50%; background-color: {color}; cursor: pointer; transition: all 0.2s; border: 2px solid; border-color: {border_color}; box-shadow: {box_shadow}; transform: {transform};",
-                                        onclick: move |_| {
-                                            *selected.write() = color.clone();
-                                        }
-                                    }
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{cp_style}",
+            label {
+                style: "font-weight: 600; color: #475569; font-size: 14px;",
+                "{label}: "
+                span {
+                    style: "color: {selected}; font-weight: bold; font-family: monospace;",
+                    "{selected}"
+                }
+            }
+            div {
+                style: "display: flex; align-items: center; gap: 8px; padding: 6px 0;",
+                for color in swatches {
+                    {
+                        let is_active = selected() == color;
+                        let border_color = if is_active { "#030213" } else { "transparent" };
+                        let box_shadow = if is_active { "0 0 0 2px rgba(3, 2, 19, 0.15)" } else { "0 2px 4px rgba(0,0,0,0.06)" };
+                        let transform = if is_active { "scale(1.15)" } else { "scale(1)" };
+
+                        rsx! {
+                            div {
+                                key: "{color}",
+                                style: "width: 28px; height: 28px; border-radius: 50%; background-color: {color}; cursor: pointer; transition: all 0.2s; border: 2px solid; border-color: {border_color}; box-shadow: {box_shadow}; transform: {transform};",
+                                onclick: move |_| {
+                                    *selected.write() = color.clone();
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
 }
-
 
 #[component]
 fn Hooked_RichTextEditor(
@@ -5554,80 +7453,88 @@ fn Hooked_RichTextEditor(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Description".to_string());
-            let placeholder = node.props.placeholder.clone().unwrap_or_default();
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Description".to_string());
+    let placeholder = node.props.placeholder.clone().unwrap_or_default();
 
-            let mut content = use_signal(|| "".to_string());
-            let mut bold = use_signal(|| false);
-            let mut italic = use_signal(|| false);
-            let mut underline = use_signal(|| false);
+    let mut content = use_signal(|| "".to_string());
+    let mut bold = use_signal(|| false);
+    let mut italic = use_signal(|| false);
+    let mut underline = use_signal(|| false);
 
-            let base_style = "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
-            let rte_style = format!("{} {}", base_style, styles);
+    let base_style =
+        "display: flex; flex-direction: column; gap: 6px; font-family: 'Outfit', sans-serif;";
+    let rte_style = format!("{} {}", base_style, styles);
 
-            let bold_bg = if bold() { "#e2e8f0" } else { "transparent" };
-            let italic_bg = if italic() { "#e2e8f0" } else { "transparent" };
-            let underline_bg = if underline() { "#e2e8f0" } else { "transparent" };
+    let bold_bg = if bold() { "#e2e8f0" } else { "transparent" };
+    let italic_bg = if italic() { "#e2e8f0" } else { "transparent" };
+    let underline_bg = if underline() {
+        "#e2e8f0"
+    } else {
+        "transparent"
+    };
 
-            let text_weight = if bold() { "bold" } else { "normal" };
-            let text_style = if italic() { "italic" } else { "normal" };
-            let text_decor = if underline() { "underline" } else { "none" };
+    let text_weight = if bold() { "bold" } else { "normal" };
+    let text_style = if italic() { "italic" } else { "normal" };
+    let text_decor = if underline() { "underline" } else { "none" };
 
-            rsx! {
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{rte_style}",
+            label {
+                style: "font-weight: 600; color: #475569; font-size: 14px;",
+                "{label}"
+            }
+            div {
+                style: "border-radius: var(--radius, 12px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.02); display: flex; flex-direction: column;",
+
+                // Editor Toolbar
                 div {
-                    id: "{node.id}",
-                    style: "{rte_style}",
-                    label {
-                        style: "font-weight: 600; color: #475569; font-size: 14px;",
-                        "{label}"
+                    style: "display: flex; align-items: center; gap: 4px; padding: 8px 12px; background-color: #f8fafc; border-bottom: 1px solid rgba(0,0,0,0.06);",
+                    button {
+                        r#type: "button",
+                        style: "background-color: {bold_bg}; border: none; padding: 6px 10px; font-weight: bold; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
+                        onclick: move |_| *bold.write() = !bold(),
+                        "B"
+                    }
+                    button {
+                        r#type: "button",
+                        style: "background-color: {italic_bg}; border: none; padding: 6px 10px; font-style: italic; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
+                        onclick: move |_| *italic.write() = !italic(),
+                        "I"
+                    }
+                    button {
+                        r#type: "button",
+                        style: "background-color: {underline_bg}; border: none; padding: 6px 10px; text-decoration: underline; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
+                        onclick: move |_| *underline.write() = !underline(),
+                        "U"
                     }
                     div {
-                        style: "border-radius: var(--radius, 12px); border: 1px solid rgba(0,0,0,0.08); background-color: #ffffff; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.02); display: flex; flex-direction: column;",
-                        
-                        // Editor Toolbar
-                        div {
-                            style: "display: flex; align-items: center; gap: 4px; padding: 8px 12px; background-color: #f8fafc; border-bottom: 1px solid rgba(0,0,0,0.06);",
-                            button {
-                                r#type: "button",
-                                style: "background-color: {bold_bg}; border: none; padding: 6px 10px; font-weight: bold; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
-                                onclick: move |_| *bold.write() = !bold(),
-                                "B"
-                            }
-                            button {
-                                r#type: "button",
-                                style: "background-color: {italic_bg}; border: none; padding: 6px 10px; font-style: italic; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
-                                onclick: move |_| *italic.write() = !italic(),
-                                "I"
-                            }
-                            button {
-                                r#type: "button",
-                                style: "background-color: {underline_bg}; border: none; padding: 6px 10px; text-decoration: underline; border-radius: 6px; cursor: pointer; color: #334155; font-size: 12px; transition: background-color 0.15s;",
-                                onclick: move |_| *underline.write() = !underline(),
-                                "U"
-                            }
-                            div {
-                                style: "height: 16px; width: 1px; background-color: #e2e8f0; margin: 0 4px;",
-                            }
-                            span {
-                                style: "font-size: 11px; color: #64748b; font-weight: 500;",
-                                "WYSIWYG Mode"
-                            }
-                        }
-
-                        // Text Area editor content
-                        textarea {
-                            placeholder: "{placeholder}",
-                            value: "{content}",
-                            oninput: move |evt| {
-                                *content.write() = evt.value();
-                            },
-                            style: "min-height: 120px; padding: 12px 14px; border: none; outline: none; font-family: inherit; font-size: 14px; color: #1e293b; resize: vertical; line-height: 1.5; font-weight: {text_weight}; font-style: {text_style}; text-decoration: {text_decor};",
-                        }
+                        style: "height: 16px; width: 1px; background-color: #e2e8f0; margin: 0 4px;",
+                    }
+                    span {
+                        style: "font-size: 11px; color: #64748b; font-weight: 500;",
+                        "WYSIWYG Mode"
                     }
                 }
-            }
-}
 
+                // Text Area editor content
+                textarea {
+                    placeholder: "{placeholder}",
+                    value: "{content}",
+                    oninput: move |evt| {
+                        *content.write() = evt.value();
+                    },
+                    style: "min-height: 120px; padding: 12px 14px; border: none; outline: none; font-family: inherit; font-size: 14px; color: #1e293b; resize: vertical; line-height: 1.5; font-weight: {text_weight}; font-style: {text_style}; text-decoration: {text_decor};",
+                }
+            }
+        }
+    }
+}
 
 #[component]
 fn Hooked_Switch(
@@ -5638,25 +7545,381 @@ fn Hooked_Switch(
     on_drop: Option<EventHandler<(String, f64, f64)>>,
     on_delete: Option<EventHandler<String>>,
 ) -> Element {
-    let label = node.props.label.clone().unwrap_or_else(|| "Active Status".to_string());
-            let mut active = use_signal(|| false);
-            let base_style = "display: flex; align-items: center; gap: 10px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
-            let switch_style = format!("{} {}", base_style, styles);
-            let switch_bg = if active() { "#10b981" } else { "#cbd5e1" };
-            let knob_transform = if active() { "translateX(18px)" } else { "translateX(0px)" };
-            rsx! {
+    let label = node
+        .props
+        .label
+        .clone()
+        .unwrap_or_else(|| "Active Status".to_string());
+    let mut data_state = use_context::<GlobalDataState>().0;
+    let bound_bool = node
+        .props
+        .extra
+        .get("__boundValue")
+        .and_then(json_value_to_bool);
+    let mut active = use_signal(move || bound_bool.unwrap_or(false));
+    let is_active = bound_bool.unwrap_or_else(|| active());
+    let bind_node = node.clone();
+    let base_style = "display: flex; align-items: center; gap: 10px; font-family: 'Outfit', sans-serif; font-size: 14px; cursor: pointer; user-select: none;";
+    let switch_style = format!("{} {}", base_style, styles);
+    let switch_bg = if is_active { "#10b981" } else { "#cbd5e1" };
+    let knob_transform = if is_active {
+        "translateX(18px)"
+    } else {
+        "translateX(0px)"
+    };
+    rsx! {
+        div {
+            id: "{node.id}",
+            style: "{switch_style}",
+            onclick: move |_| {
+                let next = !is_active;
+                *active.write() = next;
+                let mut data = data_state.write();
+                set_node_bind_value(&bind_node, &mut data, serde_json::Value::Bool(next));
+            },
+            div {
+                style: "position: relative; width: 38px; height: 20px; background-color: {switch_bg}; border-radius: 9999px; transition: background-color 0.2s;",
                 div {
-                    id: "{node.id}",
-                    style: "{switch_style}",
-                    onclick: move |_| *active.write() = !active(),
-                    div {
-                        style: "position: relative; width: 38px; height: 20px; background-color: {switch_bg}; border-radius: 9999px; transition: background-color 0.2s;",
-                        div {
-                            style: "position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background-color: #ffffff; border-radius: 50%; transition: transform 0.2s; transform: {knob_transform}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);",
-                        }
-                    }
-                    span { style: "color: #334155; font-weight: 500;", "{label}" }
+                    style: "position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background-color: #ffffff; border-radius: 50%; transition: transform 0.2s; transform: {knob_transform}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);",
                 }
             }
+            span { style: "color: #334155; font-weight: 500;", "{label}" }
+        }
+    }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_node(component_type: &str, bind: &str) -> ComponentNode {
+        let mut node = crate::models::create_default_component(component_type);
+        node.props.bind = Some(bind.to_string());
+        node
+    }
+
+    #[test]
+    fn node_bind_display_resolves_global_values_for_non_text_components() {
+        let mut node = test_node("Button", "data.profile.name");
+        node.props.label = Some("Fallback label".to_string());
+        let global = serde_json::json!({
+            "profile": {
+                "name": "Ada Lovelace"
+            }
+        });
+
+        let display = resolve_node_bind_value(&node, None, &global)
+            .map(|value| json_value_to_display_string(&value));
+
+        assert_eq!(display.as_deref(), Some("Ada Lovelace"));
+    }
+
+    #[test]
+    fn node_bind_display_resolves_local_item_values() {
+        let node = test_node("Badge", "item.status");
+        let local_item = serde_json::json!({
+            "status": "Approved"
+        });
+        let global = serde_json::json!({});
+
+        let display = resolve_node_bind_value(&node, Some(&local_item), &global)
+            .map(|value| json_value_to_display_string(&value));
+
+        assert_eq!(display.as_deref(), Some("Approved"));
+    }
+
+    #[test]
+    fn node_bind_value_preserves_array_values_for_data_components() {
+        let node = test_node("Table", "data.orders");
+        let global = serde_json::json!({
+            "orders": [
+                { "id": 1, "total": 24 },
+                { "id": 2, "total": 42 }
+            ]
+        });
+
+        let value = resolve_node_bind_value(&node, None, &global).expect("bound value");
+        assert_eq!(value.as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn node_bind_setter_writes_to_global_data_path() {
+        let node = test_node("Input", "data.form.email");
+        let mut global = serde_json::json!({});
+
+        set_node_bind_value(&node, &mut global, serde_json::json!("user@example.com"));
+
+        assert_eq!(global["form"]["email"], "user@example.com");
+    }
+
+    #[test]
+    fn bound_input_keeps_json_label_and_stores_bound_value_separately() {
+        let mut node = test_node("Input", "data.form.email");
+        node.props.label = Some("Email Address".to_string());
+
+        apply_bound_value_to_node(&mut node, &serde_json::json!("user@example.com"));
+
+        assert_eq!(node.props.label.as_deref(), Some("Email Address"));
+        assert_eq!(
+            node.props.extra.get("__boundValue"),
+            Some(&serde_json::json!("user@example.com"))
+        );
+    }
+
+    #[test]
+    fn repeater_child_with_absolute_position_still_uses_flow_layout() {
+        let mut node = test_node("Card", "");
+        node.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("left".to_string(), "0px".to_string()),
+        ]));
+
+        assert!(should_render_as_flow_layout(&node, true, false));
+    }
+
+    #[test]
+    fn modal_open_collects_on_load_actions_for_fetching_passed_data() {
+        let mut node = test_node("Modal", "");
+        node.on_load = vec![serde_json::json!({
+            "type": "API_CALL",
+            "payload": {
+                "url": "/api/ticket/{{data.selectedTicket.id}}",
+                "method": "GET",
+                "targetKey": "selectedTicketDetails"
+            }
+        })];
+
+        assert_eq!(modal_on_open_actions(&node), node.on_load);
+    }
+
+    #[test]
+    fn modal_sizing_caps_large_freeform_content_to_viewport_scroll_area() {
+        let mut modal = test_node("Modal", "");
+        modal.props.style = Some(std::collections::HashMap::from([
+            ("width".to_string(), "80%".to_string()),
+            ("height".to_string(), "80%".to_string()),
+            ("minHeight".to_string(), "200px".to_string()),
+        ]));
+
+        let mut form = test_node("Form", "");
+        form.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "relative".to_string()),
+            ("height".to_string(), "954px".to_string()),
+            ("width".to_string(), "100%".to_string()),
+        ]));
+
+        let mut submit = test_node("Button", "");
+        submit.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("top".to_string(), "1183px".to_string()),
+            ("left".to_string(), "2.75%".to_string()),
+        ]));
+        form.children = vec![submit];
+        modal.children = vec![form];
+
+        let sizing = modal_sizing_styles(&modal);
+
+        assert!(sizing
+            .dialog_style
+            .contains("max-width: calc(100vw - 24px);"));
+        assert!(sizing
+            .dialog_style
+            .contains("max-height: calc(100vh - 24px);"));
+        assert!(sizing
+            .dialog_style
+            .contains("min-height: min(1365px, calc(100vh - 24px));"));
+        assert!(sizing.body_style.contains("overflow: auto;"));
+        assert!(sizing.body_style.contains("min-height: 0;"));
+        assert!(sizing
+            .body_style
+            .contains("height: min(1255px, calc(100vh - 134px));"));
+    }
+
+    #[test]
+    fn dropdown_options_use_static_json_objects_with_custom_fields() {
+        let mut node = test_node("Select", "");
+        node.props.extra.insert(
+            "options".to_string(),
+            serde_json::json!([
+                { "id": "open", "name": "Open Ticket" },
+                { "id": "resolved", "name": "Resolved Ticket" }
+            ]),
+        );
+        node.props.extra.insert(
+            "labelField".to_string(),
+            serde_json::Value::String("name".to_string()),
+        );
+        node.props.extra.insert(
+            "valueField".to_string(),
+            serde_json::Value::String("id".to_string()),
+        );
+
+        let options = dropdown_options_for_node(&node, None, &serde_json::json!({}));
+
+        assert_eq!(
+            options,
+            vec![
+                DropdownOption {
+                    label: "Open Ticket".to_string(),
+                    value: "open".to_string()
+                },
+                DropdownOption {
+                    label: "Resolved Ticket".to_string(),
+                    value: "resolved".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dropdown_options_resolve_global_data_source() {
+        let mut node = test_node("Select", "");
+        node.props.data_source = Some("data.ticketStatuses".to_string());
+        let global = serde_json::json!({
+            "ticketStatuses": [
+                { "label": "Open", "value": "open" },
+                { "label": "Pending", "value": "pending" }
+            ]
+        });
+
+        let options = dropdown_options_for_node(&node, None, &global);
+
+        assert_eq!(
+            options,
+            vec![
+                DropdownOption {
+                    label: "Open".to_string(),
+                    value: "open".to_string()
+                },
+                DropdownOption {
+                    label: "Pending".to_string(),
+                    value: "pending".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dropdown_load_actions_include_on_load_and_api_config() {
+        let mut node = test_node("Select", "");
+        node.on_load = vec![serde_json::json!({
+            "type": "API_CALL",
+            "payload": {
+                "url": "/api/bootstrap",
+                "targetKey": "bootstrap"
+            }
+        })];
+        node.props.extra.insert(
+            "apiUrl".to_string(),
+            serde_json::Value::String("/api/statuses".to_string()),
+        );
+        node.props.extra.insert(
+            "targetKey".to_string(),
+            serde_json::Value::String("ticketStatuses".to_string()),
+        );
+
+        let actions = dropdown_load_actions(&node);
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0]["payload"]["targetKey"], "bootstrap");
+        assert_eq!(actions[1]["type"], "API_CALL");
+        assert_eq!(actions[1]["payload"]["url"], "/api/statuses");
+        assert_eq!(actions[1]["payload"]["targetKey"], "ticketStatuses");
+    }
+
+    #[test]
+    fn dropdown_options_support_live_options_bind_aliases() {
+        let mut node = test_node("Select", "");
+        node.props.extra.insert(
+            "optionsBind".to_string(),
+            serde_json::Value::String(
+                "data.my_options.functions_get_mongo_master_output_data".to_string(),
+            ),
+        );
+        node.props.extra.insert(
+            "optionsLabelKey".to_string(),
+            serde_json::Value::String("first_name".to_string()),
+        );
+        node.props.extra.insert(
+            "optionsValueKey".to_string(),
+            serde_json::Value::String("employee_id".to_string()),
+        );
+        let global = serde_json::json!({
+            "my_options": {
+                "functions_get_mongo_master_output_data": [
+                    { "first_name": "Asha", "employee_id": "EMP-1" },
+                    { "first_name": "Dev", "employee_id": "EMP-2" }
+                ]
+            }
+        });
+
+        let options = dropdown_options_for_node(&node, None, &global);
+
+        assert_eq!(
+            options,
+            vec![
+                DropdownOption {
+                    label: "Asha".to_string(),
+                    value: "EMP-1".to_string()
+                },
+                DropdownOption {
+                    label: "Dev".to_string(),
+                    value: "EMP-2".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn action_callbacks_support_top_level_builder_shape() {
+        let action = serde_json::json!({
+            "type": "API_CALL",
+            "payload": { "targetKey": "result" },
+            "onSuccess": [{ "type": "CLOSE_MODAL", "payload": {} }],
+            "onError": [{ "type": "TOAST", "payload": { "type": "error" } }]
+        });
+
+        assert_eq!(
+            action_success_actions(&action),
+            Some(vec![
+                serde_json::json!({ "type": "CLOSE_MODAL", "payload": {} })
+            ])
+        );
+        assert_eq!(
+            action_error_actions(&action),
+            Some(vec![
+                serde_json::json!({ "type": "TOAST", "payload": { "type": "error" } })
+            ])
+        );
+    }
+
+    #[test]
+    fn submit_form_action_is_removed_from_button_click_workflow() {
+        let actions = vec![
+            serde_json::json!({ "type": "SUBMIT_FORM", "payload": {} }),
+            serde_json::json!({ "type": "TOAST", "payload": { "message": "Clicked" } }),
+        ];
+
+        assert!(button_has_submit_form_action(&actions));
+        assert_eq!(
+            button_click_actions(&actions),
+            vec![serde_json::json!({ "type": "TOAST", "payload": { "message": "Clicked" } })]
+        );
+    }
+
+    #[test]
+    fn form_submit_scope_contains_form_aliases() {
+        let scope = form_submit_scope(
+            serde_json::json!({
+                "remarks": "Assign this",
+                "selected_id": "EMP-1"
+            }),
+            None,
+        );
+
+        assert_eq!(scope["form"]["remarks"], "Assign this");
+        assert_eq!(scope["formData"]["selected_id"], "EMP-1");
+        assert_eq!(scope["formValues"]["selected_id"], "EMP-1");
+    }
+}

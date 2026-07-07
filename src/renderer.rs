@@ -7,32 +7,529 @@ use crate::normalize_href_for_navigate;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
-fn icon_label_to_glyph(name: &str) -> &'static str {
-    match name {
-        "LayoutDashboard" => "▦",
-        "ArrowBigUpIcon" => "↗",
-        "BookPlus" => "+",
-        "Briefcase" => "▣",
-        "Ticket" => "◫",
-        "ListTodo" => "☰",
-        "Activity" => "◉",
-        "BookHeadphones" => "◍",
-        "Mail" => "✉",
-        "Dock" => "▤",
-        "Voicemail" => "◌",
-        "BookUser" => "◍",
-        "LogIn" => "🔑",
-        "UserPlus" => "👤+",
-        "User" => "👤",
-        "LogOut" => "🚪",
-        "ChevronDown" => "▼",
-        "ChevronRight" => "▶",
-        "Menu" => "☰",
-        "Search" => "🔍",
-        "Settings" => "⚙",
-        "HelpCircle" => "❓",
-        "Plus" => "＋",
-        _ => "•",
+#[derive(Clone, Copy, PartialEq)]
+enum LucideSvgNode {
+    Path(&'static str),
+    Rect {
+        x: &'static str,
+        y: &'static str,
+        width: &'static str,
+        height: &'static str,
+        rx: Option<&'static str>,
+    },
+    Circle {
+        cx: &'static str,
+        cy: &'static str,
+        r: &'static str,
+    },
+    Line {
+        x1: &'static str,
+        y1: &'static str,
+        x2: &'static str,
+        y2: &'static str,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct LucideIconDefinition {
+    name: &'static str,
+    nodes: &'static [LucideSvgNode],
+}
+
+const ACTIVITY_ICON: &[LucideSvgNode] = &[LucideSvgNode::Path(
+    "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2",
+)];
+const ALIGN_VERTICAL_SPACE_AROUND_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Rect {
+        x: "7",
+        y: "9",
+        width: "10",
+        height: "6",
+        rx: Some("2"),
+    },
+    LucideSvgNode::Path("M22 20H2"),
+    LucideSvgNode::Path("M22 4H2"),
+];
+const ARROW_BIG_UP_ICON: &[LucideSvgNode] = &[LucideSvgNode::Path(
+    "M9 13a1 1 0 0 0-1-1H5.061a1 1 0 0 1-.75-1.811l6.836-6.835a1.207 1.207 0 0 1 1.707 0l6.835 6.835a1 1 0 0 1-.75 1.811H16a1 1 0 0 0-1 1v6a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z",
+)];
+const BOOK_BASE_PATH: LucideSvgNode = LucideSvgNode::Path(
+    "M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20",
+);
+const BOOK_HEADPHONES_ICON: &[LucideSvgNode] = &[
+    BOOK_BASE_PATH,
+    LucideSvgNode::Path("M8 12v-2a4 4 0 0 1 8 0v2"),
+    LucideSvgNode::Circle {
+        cx: "15",
+        cy: "12",
+        r: "1",
+    },
+    LucideSvgNode::Circle {
+        cx: "9",
+        cy: "12",
+        r: "1",
+    },
+];
+const BOOK_PLUS_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M12 7v6"),
+    BOOK_BASE_PATH,
+    LucideSvgNode::Path("M9 10h6"),
+];
+const BOOK_USER_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M15 13a3 3 0 1 0-6 0"),
+    BOOK_BASE_PATH,
+    LucideSvgNode::Circle {
+        cx: "12",
+        cy: "8",
+        r: "2",
+    },
+];
+const BRIEFCASE_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"),
+    LucideSvgNode::Rect {
+        x: "2",
+        y: "6",
+        width: "20",
+        height: "14",
+        rx: Some("2"),
+    },
+];
+const CHEVRON_DOWN_ICON: &[LucideSvgNode] = &[LucideSvgNode::Path("m6 9 6 6 6-6")];
+const CHEVRON_RIGHT_ICON: &[LucideSvgNode] = &[LucideSvgNode::Path("m9 18 6-6-6-6")];
+const CIRCLE_CHEVRON_RIGHT_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Circle {
+        cx: "12",
+        cy: "12",
+        r: "10",
+    },
+    LucideSvgNode::Path("m10 8 4 4-4 4"),
+];
+const CIRCLE_HELP_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Circle {
+        cx: "12",
+        cy: "12",
+        r: "10",
+    },
+    LucideSvgNode::Path("M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"),
+    LucideSvgNode::Path("M12 17h.01"),
+];
+const DOCK_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M2 8h20"),
+    LucideSvgNode::Rect {
+        x: "2",
+        y: "4",
+        width: "20",
+        height: "16",
+        rx: Some("2"),
+    },
+    LucideSvgNode::Path("M6 16h12"),
+];
+const HEXAGON_ICON: &[LucideSvgNode] = &[LucideSvgNode::Path(
+    "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z",
+)];
+const LAYOUT_DASHBOARD_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Rect {
+        x: "3",
+        y: "3",
+        width: "7",
+        height: "9",
+        rx: Some("1"),
+    },
+    LucideSvgNode::Rect {
+        x: "14",
+        y: "3",
+        width: "7",
+        height: "5",
+        rx: Some("1"),
+    },
+    LucideSvgNode::Rect {
+        x: "14",
+        y: "12",
+        width: "7",
+        height: "9",
+        rx: Some("1"),
+    },
+    LucideSvgNode::Rect {
+        x: "3",
+        y: "16",
+        width: "7",
+        height: "5",
+        rx: Some("1"),
+    },
+];
+const LIST_TODO_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M13 5h8"),
+    LucideSvgNode::Path("M13 12h8"),
+    LucideSvgNode::Path("M13 19h8"),
+    LucideSvgNode::Path("m3 17 2 2 4-4"),
+    LucideSvgNode::Rect {
+        x: "3",
+        y: "4",
+        width: "6",
+        height: "6",
+        rx: Some("1"),
+    },
+];
+const LOG_IN_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("m10 17 5-5-5-5"),
+    LucideSvgNode::Path("M15 12H3"),
+    LucideSvgNode::Path("M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"),
+];
+const LOG_OUT_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("m16 17 5-5-5-5"),
+    LucideSvgNode::Path("M21 12H9"),
+    LucideSvgNode::Path("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"),
+];
+const MAIL_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"),
+    LucideSvgNode::Rect {
+        x: "2",
+        y: "4",
+        width: "20",
+        height: "16",
+        rx: Some("2"),
+    },
+];
+const MENU_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M4 5h16"),
+    LucideSvgNode::Path("M4 12h16"),
+    LucideSvgNode::Path("M4 19h16"),
+];
+const MONITOR_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Rect {
+        x: "2",
+        y: "3",
+        width: "20",
+        height: "14",
+        rx: Some("2"),
+    },
+    LucideSvgNode::Line {
+        x1: "8",
+        y1: "21",
+        x2: "16",
+        y2: "21",
+    },
+    LucideSvgNode::Line {
+        x1: "12",
+        y1: "17",
+        x2: "12",
+        y2: "21",
+    },
+];
+const PLUS_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M5 12h14"),
+    LucideSvgNode::Path("M12 5v14"),
+];
+const SEARCH_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("m21 21-4.34-4.34"),
+    LucideSvgNode::Circle {
+        cx: "11",
+        cy: "11",
+        r: "8",
+    },
+];
+const SETTINGS_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path(
+        "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915",
+    ),
+    LucideSvgNode::Circle {
+        cx: "12",
+        cy: "12",
+        r: "3",
+    },
+];
+const TABLE_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M12 3v18"),
+    LucideSvgNode::Rect {
+        x: "3",
+        y: "3",
+        width: "18",
+        height: "18",
+        rx: Some("2"),
+    },
+    LucideSvgNode::Path("M3 9h18"),
+    LucideSvgNode::Path("M3 15h18"),
+];
+const TICKET_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path(
+        "M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z",
+    ),
+    LucideSvgNode::Path("M13 5v2"),
+    LucideSvgNode::Path("M13 17v2"),
+    LucideSvgNode::Path("M13 11v2"),
+];
+const USER_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"),
+    LucideSvgNode::Circle {
+        cx: "12",
+        cy: "7",
+        r: "4",
+    },
+];
+const USER_PLUS_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Path("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"),
+    LucideSvgNode::Circle {
+        cx: "9",
+        cy: "7",
+        r: "4",
+    },
+    LucideSvgNode::Line {
+        x1: "19",
+        y1: "8",
+        x2: "19",
+        y2: "14",
+    },
+    LucideSvgNode::Line {
+        x1: "22",
+        y1: "11",
+        x2: "16",
+        y2: "11",
+    },
+];
+const VOICEMAIL_ICON: &[LucideSvgNode] = &[
+    LucideSvgNode::Circle {
+        cx: "6",
+        cy: "12",
+        r: "4",
+    },
+    LucideSvgNode::Circle {
+        cx: "18",
+        cy: "12",
+        r: "4",
+    },
+    LucideSvgNode::Line {
+        x1: "6",
+        y1: "16",
+        x2: "18",
+        y2: "16",
+    },
+];
+const UNKNOWN_ICON: &[LucideSvgNode] = &[LucideSvgNode::Circle {
+    cx: "12",
+    cy: "12",
+    r: "8",
+}];
+
+fn normalize_lucide_icon_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let mut normalized = if trimmed
+        .chars()
+        .any(|ch| ch == '-' || ch == '_' || ch.is_whitespace())
+    {
+        trimmed
+            .split(|ch: char| ch == '-' || ch == '_' || ch.is_whitespace())
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(first) => {
+                        let mut word = String::new();
+                        word.extend(first.to_uppercase());
+                        word.push_str(chars.as_str());
+                        word
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect::<String>()
+    } else {
+        trimmed.to_string()
+    };
+
+    while normalized.ends_with("Icon") && normalized.len() > "Icon".len() {
+        normalized.truncate(normalized.len() - "Icon".len());
+    }
+
+    match normalized.as_str() {
+        "HelpCircle" => "CircleHelp".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn lucide_icon_definition(name: &str) -> LucideIconDefinition {
+    match normalize_lucide_icon_name(name).as_str() {
+        "Activity" => LucideIconDefinition {
+            name: "Activity",
+            nodes: ACTIVITY_ICON,
+        },
+        "AlignVerticalSpaceAround" => LucideIconDefinition {
+            name: "AlignVerticalSpaceAround",
+            nodes: ALIGN_VERTICAL_SPACE_AROUND_ICON,
+        },
+        "ArrowBigUp" => LucideIconDefinition {
+            name: "ArrowBigUp",
+            nodes: ARROW_BIG_UP_ICON,
+        },
+        "BookHeadphones" => LucideIconDefinition {
+            name: "BookHeadphones",
+            nodes: BOOK_HEADPHONES_ICON,
+        },
+        "BookPlus" => LucideIconDefinition {
+            name: "BookPlus",
+            nodes: BOOK_PLUS_ICON,
+        },
+        "BookUser" => LucideIconDefinition {
+            name: "BookUser",
+            nodes: BOOK_USER_ICON,
+        },
+        "Briefcase" => LucideIconDefinition {
+            name: "Briefcase",
+            nodes: BRIEFCASE_ICON,
+        },
+        "ChevronDown" => LucideIconDefinition {
+            name: "ChevronDown",
+            nodes: CHEVRON_DOWN_ICON,
+        },
+        "ChevronRight" => LucideIconDefinition {
+            name: "ChevronRight",
+            nodes: CHEVRON_RIGHT_ICON,
+        },
+        "CircleChevronRight" => LucideIconDefinition {
+            name: "CircleChevronRight",
+            nodes: CIRCLE_CHEVRON_RIGHT_ICON,
+        },
+        "CircleHelp" => LucideIconDefinition {
+            name: "CircleHelp",
+            nodes: CIRCLE_HELP_ICON,
+        },
+        "Dock" => LucideIconDefinition {
+            name: "Dock",
+            nodes: DOCK_ICON,
+        },
+        "Hexagon" => LucideIconDefinition {
+            name: "Hexagon",
+            nodes: HEXAGON_ICON,
+        },
+        "LayoutDashboard" => LucideIconDefinition {
+            name: "LayoutDashboard",
+            nodes: LAYOUT_DASHBOARD_ICON,
+        },
+        "ListTodo" => LucideIconDefinition {
+            name: "ListTodo",
+            nodes: LIST_TODO_ICON,
+        },
+        "LogIn" => LucideIconDefinition {
+            name: "LogIn",
+            nodes: LOG_IN_ICON,
+        },
+        "LogOut" => LucideIconDefinition {
+            name: "LogOut",
+            nodes: LOG_OUT_ICON,
+        },
+        "Mail" => LucideIconDefinition {
+            name: "Mail",
+            nodes: MAIL_ICON,
+        },
+        "Menu" => LucideIconDefinition {
+            name: "Menu",
+            nodes: MENU_ICON,
+        },
+        "Monitor" => LucideIconDefinition {
+            name: "Monitor",
+            nodes: MONITOR_ICON,
+        },
+        "Plus" => LucideIconDefinition {
+            name: "Plus",
+            nodes: PLUS_ICON,
+        },
+        "Search" => LucideIconDefinition {
+            name: "Search",
+            nodes: SEARCH_ICON,
+        },
+        "Settings" => LucideIconDefinition {
+            name: "Settings",
+            nodes: SETTINGS_ICON,
+        },
+        "Table" => LucideIconDefinition {
+            name: "Table",
+            nodes: TABLE_ICON,
+        },
+        "Ticket" => LucideIconDefinition {
+            name: "Ticket",
+            nodes: TICKET_ICON,
+        },
+        "User" => LucideIconDefinition {
+            name: "User",
+            nodes: USER_ICON,
+        },
+        "UserPlus" => LucideIconDefinition {
+            name: "UserPlus",
+            nodes: USER_PLUS_ICON,
+        },
+        "Voicemail" => LucideIconDefinition {
+            name: "Voicemail",
+            nodes: VOICEMAIL_ICON,
+        },
+        _ => LucideIconDefinition {
+            name: "Circle",
+            nodes: UNKNOWN_ICON,
+        },
+    }
+}
+
+#[component]
+fn LucideIcon(name: String, size: String) -> Element {
+    let icon = lucide_icon_definition(&name);
+
+    rsx! {
+        svg {
+            class: "lucide lucide-{icon.name}",
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{size}",
+            height: "{size}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            style: "display: block; flex-shrink: 0;",
+            for (index, node) in icon.nodes.iter().enumerate() {
+                LucideSvgNodeRenderer {
+                    key: "{index}",
+                    node: *node
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn LucideSvgNodeRenderer(node: LucideSvgNode) -> Element {
+    match node {
+        LucideSvgNode::Path(d) => rsx! {
+            path { d: "{d}" }
+        },
+        LucideSvgNode::Rect {
+            x,
+            y,
+            width,
+            height,
+            rx,
+        } => rsx! {
+            rect {
+                x: "{x}",
+                y: "{y}",
+                width: "{width}",
+                height: "{height}",
+                rx: "{rx.unwrap_or(\"0\")}"
+            }
+        },
+        LucideSvgNode::Circle { cx, cy, r } => rsx! {
+            circle {
+                cx: "{cx}",
+                cy: "{cy}",
+                r: "{r}"
+            }
+        },
+        LucideSvgNode::Line { x1, y1, x2, y2 } => rsx! {
+            line {
+                x1: "{x1}",
+                y1: "{y1}",
+                x2: "{x2}",
+                y2: "{y2}"
+            }
+        },
     }
 }
 
@@ -411,6 +908,19 @@ fn resolve_min_height(
     }
 }
 
+fn apply_freeform_min_height(
+    style_map: &mut std::collections::HashMap<String, String>,
+    source_style_map: &std::collections::HashMap<String, String>,
+    max_bottom: f64,
+    preserve_height: bool,
+) {
+    let resolved = resolve_min_height(Some(source_style_map), max_bottom);
+    style_map.insert("minHeight".to_string(), resolved);
+    if !preserve_height {
+        style_map.remove("height");
+    }
+}
+
 fn strip_guide_borders(style_map: &mut std::collections::HashMap<String, String>, comp_type: &str) {
     let type_lower = comp_type.to_lowercase();
     if type_lower == "layout"
@@ -464,6 +974,482 @@ fn should_render_as_flow_layout(
         .unwrap_or(false);
 
     !has_explicit_absolute && is_flow_context
+}
+
+fn children_should_use_flow_context(node: &ComponentNode) -> bool {
+    if node.id == "root" {
+        return node.layout_mode != crate::models::LayoutMode::Absolute;
+    }
+
+    match node.component_type.as_str() {
+        "Flex" => true,
+        "Card" | "Form" | "Stack" | "Container" | "Box" => true,
+        "Layout" | "Grid" => {
+            !node.children.is_empty() && !node.children.iter().all(is_absolute_layout_node)
+        }
+        _ => true,
+    }
+}
+
+#[derive(Clone, PartialEq)]
+enum ChildLayoutGroup {
+    Single(ComponentNode),
+    DynamicBadgeRow {
+        text: ComponentNode,
+        badge: ComponentNode,
+        wrapper_style: String,
+    },
+}
+
+impl ChildLayoutGroup {
+    fn key(&self) -> String {
+        match self {
+            ChildLayoutGroup::Single(child) => child.id.clone(),
+            ChildLayoutGroup::DynamicBadgeRow { text, badge, .. } => {
+                format!("{}_{}", text.id, badge.id)
+            }
+        }
+    }
+}
+
+const DYNAMIC_BADGE_ROW_TOP_TOLERANCE_PX: f64 = 8.0;
+
+fn dynamic_badge_text_child_groups(children: &[ComponentNode]) -> Vec<ChildLayoutGroup> {
+    let mut groups = Vec::new();
+    let mut consumed = vec![false; children.len()];
+
+    for index in 0..children.len() {
+        if consumed[index] {
+            continue;
+        }
+
+        if let Some((text_index, badge_index)) =
+            dynamic_badge_text_pair_for_index(children, &consumed, index)
+        {
+            consumed[text_index] = true;
+            consumed[badge_index] = true;
+
+            let text = dynamic_badge_row_child(children[text_index].clone(), true);
+            let badge = dynamic_badge_row_child(children[badge_index].clone(), false);
+            let wrapper_style =
+                dynamic_badge_row_wrapper_style(&children[text_index], &children[badge_index]);
+
+            groups.push(ChildLayoutGroup::DynamicBadgeRow {
+                text,
+                badge,
+                wrapper_style,
+            });
+        } else {
+            consumed[index] = true;
+            groups.push(ChildLayoutGroup::Single(children[index].clone()));
+        }
+    }
+
+    groups
+}
+
+fn child_layout_groups_for_node(node: &ComponentNode) -> Vec<ChildLayoutGroup> {
+    let groups = dynamic_badge_text_child_groups(&node.children);
+    if should_strip_child_freeform_placement(node) {
+        let mut ordered_groups = groups;
+        ordered_groups.sort_by(|left, right| {
+            child_group_visual_left(left)
+                .partial_cmp(&child_group_visual_left(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ordered_groups
+            .into_iter()
+            .map(strip_child_group_freeform_placement)
+            .collect()
+    } else {
+        groups
+    }
+}
+
+fn should_strip_child_freeform_placement(node: &ComponentNode) -> bool {
+    node.id != "root"
+        && node.component_type == "Flex"
+        && node
+            .props
+            .direction
+            .as_deref()
+            .unwrap_or("row")
+            .eq_ignore_ascii_case("row")
+        && !node.children.is_empty()
+        && node.children.iter().all(node_has_explicit_width)
+}
+
+fn node_has_explicit_width(node: &ComponentNode) -> bool {
+    node.props
+        .style
+        .as_ref()
+        .and_then(|style| style_value_case_insensitive(style, "width"))
+        .map(|width| !width.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn child_group_visual_left(group: &ChildLayoutGroup) -> f64 {
+    match group {
+        ChildLayoutGroup::Single(child) => node_style_scalar(child, "left").unwrap_or_else(|| {
+            let right = node_style_scalar(child, "right").unwrap_or(0.0);
+            100.0 - right
+        }),
+        ChildLayoutGroup::DynamicBadgeRow { text, .. } => {
+            node_style_scalar(text, "left").unwrap_or(0.0)
+        }
+    }
+}
+
+fn strip_child_group_freeform_placement(group: ChildLayoutGroup) -> ChildLayoutGroup {
+    match group {
+        ChildLayoutGroup::Single(child) => {
+            ChildLayoutGroup::Single(strip_node_freeform_placement(child))
+        }
+        ChildLayoutGroup::DynamicBadgeRow {
+            text,
+            badge,
+            wrapper_style,
+        } => ChildLayoutGroup::DynamicBadgeRow {
+            text,
+            badge,
+            wrapper_style,
+        },
+    }
+}
+
+fn strip_node_freeform_placement(mut node: ComponentNode) -> ComponentNode {
+    if let Some(ref mut style) = node.props.style {
+        strip_positioning_style_keys(style);
+    }
+    node.placement = None;
+    node.placement_desktop = None;
+    node.placement_tablet = None;
+    node.placement_mobile = None;
+    node
+}
+
+fn dynamic_badge_text_pair_for_index(
+    children: &[ComponentNode],
+    consumed: &[bool],
+    index: usize,
+) -> Option<(usize, usize)> {
+    let node = children.get(index)?;
+
+    if is_dynamic_text_node(node) {
+        let badge_index = find_same_row_node(children, consumed, index, is_badge_node)?;
+        return Some((index, badge_index));
+    }
+
+    if is_badge_node(node) {
+        let text_index = find_same_row_node(children, consumed, index, is_dynamic_text_node)?;
+        return Some((text_index, index));
+    }
+
+    None
+}
+
+fn find_same_row_node(
+    children: &[ComponentNode],
+    consumed: &[bool],
+    source_index: usize,
+    predicate: fn(&ComponentNode) -> bool,
+) -> Option<usize> {
+    let source = children.get(source_index)?;
+    if !is_absolute_layout_node(source) {
+        return None;
+    }
+
+    let source_top = node_style_number(source, "top")?;
+
+    children
+        .iter()
+        .enumerate()
+        .filter(|(index, candidate)| {
+            *index != source_index
+                && !consumed[*index]
+                && predicate(candidate)
+                && is_absolute_layout_node(candidate)
+        })
+        .filter_map(|(index, candidate)| {
+            let candidate_top = node_style_number(candidate, "top")?;
+            let distance = (candidate_top - source_top).abs();
+            if distance <= DYNAMIC_BADGE_ROW_TOP_TOLERANCE_PX {
+                Some((index, distance, index.abs_diff(source_index)))
+            } else {
+                None
+            }
+        })
+        .min_by(|left, right| {
+            left.1
+                .partial_cmp(&right.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.2.cmp(&right.2))
+        })
+        .map(|(index, _, _)| index)
+}
+
+fn is_dynamic_text_node(node: &ComponentNode) -> bool {
+    if node.component_type != "Text" {
+        return false;
+    }
+
+    node.props
+        .bind
+        .as_deref()
+        .map(|bind| !bind.trim().is_empty())
+        .unwrap_or(false)
+        || node
+            .props
+            .content
+            .as_deref()
+            .map(|content| content.contains("{{"))
+            .unwrap_or(false)
+        || node
+            .props
+            .text
+            .as_deref()
+            .map(|text| text.contains("{{"))
+            .unwrap_or(false)
+}
+
+fn is_badge_node(node: &ComponentNode) -> bool {
+    matches!(node.component_type.as_str(), "Badge" | "StatusBadge")
+}
+
+fn is_absolute_layout_node(node: &ComponentNode) -> bool {
+    node.props
+        .style
+        .as_ref()
+        .and_then(|style| style_value_case_insensitive(style, "position"))
+        .map(|position| position.eq_ignore_ascii_case("absolute"))
+        .unwrap_or(false)
+        || node.placement.is_some()
+        || node.placement_desktop.is_some()
+        || node.placement_tablet.is_some()
+        || node.placement_mobile.is_some()
+}
+
+fn style_value_case_insensitive(
+    style: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> Option<String> {
+    style
+        .iter()
+        .find(|(style_key, _)| style_key.eq_ignore_ascii_case(key))
+        .map(|(_, value)| value.clone())
+}
+
+fn node_style_value(node: &ComponentNode, key: &str) -> Option<String> {
+    node.props
+        .style
+        .as_ref()
+        .and_then(|style| style_value_case_insensitive(style, key))
+        .or_else(|| {
+            node.placement.as_ref().and_then(|placement| match key {
+                "top" => placement.top.clone(),
+                "left" => placement.left.clone(),
+                "right" => placement.right.clone(),
+                "bottom" => placement.bottom.clone(),
+                _ => None,
+            })
+        })
+}
+
+fn node_style_number(node: &ComponentNode, key: &str) -> Option<f64> {
+    node_style_value(node, key).and_then(|value| get_css_pixel_number(&value))
+}
+
+fn node_z_index(node: &ComponentNode) -> Option<i32> {
+    node_style_value(node, "zIndex")
+        .or_else(|| node_style_value(node, "z-index"))
+        .and_then(|value| value.trim().parse::<i32>().ok())
+}
+
+fn parse_css_scalar(value: &str) -> Option<f64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = trimmed
+        .strip_suffix("px")
+        .or_else(|| trimmed.strip_suffix('%'))
+        .unwrap_or(trimmed)
+        .trim();
+    normalized.parse::<f64>().ok()
+}
+
+fn node_style_scalar(node: &ComponentNode, key: &str) -> Option<f64> {
+    node_style_value(node, key).and_then(|value| parse_css_scalar(&value))
+}
+
+fn dynamic_badge_row_wrapper_style(text: &ComponentNode, badge: &ComponentNode) -> String {
+    let text_top = node_style_number(text, "top");
+    let badge_top = node_style_number(badge, "top");
+    let top = match (text_top, badge_top) {
+        (Some(text_top), Some(badge_top)) => format_css_px(text_top.min(badge_top)),
+        _ => node_style_value(text, "top").unwrap_or_else(|| "0px".to_string()),
+    };
+    let left = node_style_value(text, "left").unwrap_or_else(|| "0px".to_string());
+    let z_index = node_z_index(text)
+        .into_iter()
+        .chain(node_z_index(badge))
+        .max();
+    let z_index_style = z_index
+        .map(|z| format!("z-index:{};", z))
+        .unwrap_or_default();
+
+    format!(
+        "position:absolute;top:{};left:{};right:0;display:flex;align-items:center;gap:12px;box-sizing:border-box;max-width:calc(100% - {});{}",
+        top, left, left, z_index_style
+    )
+}
+
+fn format_css_px(value: f64) -> String {
+    if (value.fract()).abs() < 0.01 {
+        format!("{:.0}px", value)
+    } else {
+        format!("{:.2}px", value)
+    }
+}
+
+fn dynamic_badge_row_child(mut node: ComponentNode, is_text: bool) -> ComponentNode {
+    node.placement = None;
+    node.placement_desktop = None;
+    node.placement_tablet = None;
+    node.placement_mobile = None;
+
+    let style = node.props.style.get_or_insert_with(Default::default);
+    strip_positioning_style_keys(style);
+
+    if is_text {
+        style.insert("flex".to_string(), "0 1 auto".to_string());
+        style.insert("minWidth".to_string(), "0".to_string());
+        style.insert("whiteSpace".to_string(), "nowrap".to_string());
+        style.insert("overflow".to_string(), "hidden".to_string());
+        style.insert("textOverflow".to_string(), "ellipsis".to_string());
+    } else {
+        style.insert("flex".to_string(), "0 0 auto".to_string());
+        style.insert("margin".to_string(), "0".to_string());
+    }
+
+    node
+}
+
+fn strip_positioning_style_keys(style: &mut std::collections::HashMap<String, String>) {
+    style.retain(|key, _| {
+        !matches!(
+            key.to_ascii_lowercase().as_str(),
+            "position" | "top" | "right" | "bottom" | "left" | "zindex" | "z-index"
+        )
+    });
+}
+
+fn repeater_container_styles(
+    node: &ComponentNode,
+    active_breakpoint: &str,
+    is_flow_context: bool,
+) -> String {
+    let columns = node
+        .props
+        .extra
+        .get("repeaterColumns")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
+        .unwrap_or(1) as usize;
+
+    let gap = node
+        .props
+        .extra
+        .get("repeaterGap")
+        .and_then(|v| v.as_str())
+        .unwrap_or("12px");
+
+    let mut styles = String::new();
+
+    if is_flow_context {
+        styles.push_str("width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;");
+        if let Some(ref style_map) = node.props.style {
+            if let Some(mh) = style_map.get("minHeight") {
+                styles.push_str(&format!("min-height: {};", mh));
+            }
+            if let Some(max_h) = style_map.get("maxHeight") {
+                styles.push_str(&format!("max-height: {};", max_h));
+            }
+            for key in [
+                "margin",
+                "marginTop",
+                "marginRight",
+                "marginBottom",
+                "marginLeft",
+            ] {
+                if let Some(value) = style_map.get(key) {
+                    styles.push_str(&format!("{}: {};", convert_camel_to_kebab(key), value));
+                }
+            }
+        }
+    } else {
+        let active_placement = match active_breakpoint {
+            "tablet" => node
+                .placement_tablet
+                .clone()
+                .or_else(|| node.placement.clone()),
+            "mobile" => node
+                .placement_mobile
+                .clone()
+                .or_else(|| node.placement_tablet.clone())
+                .or_else(|| node.placement.clone()),
+            _ => node
+                .placement_desktop
+                .clone()
+                .or_else(|| node.placement.clone()),
+        };
+
+        if let Some(ref p) = active_placement {
+            styles.push_str("position: absolute;");
+            if let Some(ref t) = p.top {
+                styles.push_str(&format!("top: {};", t));
+            }
+            if let Some(ref l) = p.left {
+                styles.push_str(&format!("left: {};", l));
+            }
+        }
+
+        if let Some(ref style_map) = node.props.style {
+            if let Some(w) = style_map.get("width") {
+                styles.push_str(&format!("width: {};", w));
+            }
+            if let Some(h) = style_map.get("height") {
+                styles.push_str(&format!("height: {};", h));
+            }
+            if let Some(mh) = style_map.get("minHeight") {
+                styles.push_str(&format!("min-height: {};", mh));
+            }
+            if let Some(pos) = style_map.get("position") {
+                if pos == "absolute" && active_placement.is_none() {
+                    styles.push_str("position: absolute;");
+                }
+            }
+            if let Some(top) = style_map.get("top") {
+                if active_placement.is_none() {
+                    styles.push_str(&format!("top: {};", top));
+                }
+            }
+            if let Some(left) = style_map.get("left") {
+                if active_placement.is_none() {
+                    styles.push_str(&format!("left: {};", left));
+                }
+            }
+        }
+    }
+
+    styles.push_str(&format!(
+        "display: grid; grid-template-columns: repeat({}, minmax(0, 1fr)); grid-auto-rows: auto; gap: {}; overflow: visible; box-sizing: border-box;",
+        columns, gap
+    ));
+    styles
 }
 
 fn modal_on_open_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
@@ -603,6 +1589,414 @@ fn dropdown_load_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
         }
     }));
     actions
+}
+
+fn chart_target_key(node: &ComponentNode) -> String {
+    node_extra_str(node, &["targetKey", "target_key"])
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "chartresult".to_string())
+}
+
+fn chart_data_source_raw(node: &ComponentNode) -> Option<&str> {
+    node.props
+        .data_source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| node_extra_str(node, &["dataSource", "data_source"]))
+}
+
+fn chart_data_source_mode(node: &ComponentNode) -> String {
+    chart_data_source_raw(node)
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "api" | "bind" | "static"))
+        .unwrap_or_else(|| "static".to_string())
+}
+
+fn chart_data_source_path(node: &ComponentNode) -> Option<String> {
+    chart_data_source_raw(node)
+        .filter(|value| {
+            !matches!(
+                value.to_ascii_lowercase().as_str(),
+                "api" | "bind" | "static"
+            )
+        })
+        .map(ToString::to_string)
+}
+
+fn chart_x_key(node: &ComponentNode) -> String {
+    node_extra_str(node, &["xKey", "x_key"])
+        .unwrap_or("label")
+        .to_string()
+}
+
+fn chart_y_key(node: &ComponentNode) -> String {
+    node_extra_str(node, &["yKey", "y_key"])
+        .unwrap_or("value")
+        .to_string()
+}
+
+fn chart_response_path(node: &ComponentNode) -> Option<String> {
+    node_extra_str(node, &["responsePath", "response_path"]).map(ToString::to_string)
+}
+
+fn chart_load_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
+    if chart_data_source_mode(node) != "api" {
+        return Vec::new();
+    }
+
+    let Some(api_url) = node_extra_str(node, &["apiUrl", "api_url", "fetchUrl", "fetch_url"])
+    else {
+        return Vec::new();
+    };
+
+    let method = node
+        .props
+        .method
+        .clone()
+        .or_else(|| node_extra_str(node, &["method"]).map(ToString::to_string))
+        .unwrap_or_else(|| "POST".to_string());
+    let body = node
+        .props
+        .request_body
+        .clone()
+        .or_else(|| node.props.extra.get("requestBody").cloned())
+        .or_else(|| node.props.extra.get("request_body").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    vec![serde_json::json!({
+        "type": "API_CALL",
+        "payload": {
+            "url": api_url,
+            "method": method,
+            "body": body,
+            "targetKey": chart_target_key(node)
+        }
+    })]
+}
+
+fn component_mount_on_load_actions(node: &ComponentNode) -> Vec<serde_json::Value> {
+    match node.component_type.as_str() {
+        "Modal" | "DynamicTable" | "Select" | "MultiSelectDropdown" => Vec::new(),
+        "Chart" => {
+            let mut actions = node.on_load.clone();
+            actions.extend(chart_load_actions(node));
+            actions
+        }
+        _ => node.on_load.clone(),
+    }
+}
+
+fn json_number_from_value(value: &serde_json::Value) -> Option<f64> {
+    value.as_f64().or_else(|| {
+        value
+            .as_str()
+            .and_then(|text| text.trim().parse::<f64>().ok())
+    })
+}
+
+fn chart_item_label(value: &serde_json::Value, index: usize, x_key: &str) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+
+    std::iter::once(x_key)
+        .chain([
+            "name",
+            "label",
+            "employee_name",
+            "employeeName",
+            "agent_name",
+            "agentName",
+            "agent",
+            "employee",
+            "user_name",
+            "userName",
+            "title",
+            "key",
+        ])
+        .find_map(|key| {
+            value
+                .get(key)
+                .and_then(|entry| entry.as_str().map(ToString::to_string))
+        })
+        .or_else(|| {
+            value.as_object().and_then(|map| {
+                map.iter()
+                    .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "request_id")
+                    .find_map(|(_, entry)| entry.as_str().map(ToString::to_string))
+            })
+        })
+        .or_else(|| Some(format!("Item {}", index + 1)))
+}
+
+fn chart_item_value(value: &serde_json::Value, y_key: &str) -> Option<f64> {
+    if let Some(num) = json_number_from_value(value) {
+        return Some(num);
+    }
+
+    std::iter::once(y_key)
+        .chain([
+            "value",
+            "count",
+            "amount",
+            "total",
+            "open",
+            "breached",
+            "tickets",
+            "ticket_count",
+            "ticketCount",
+            "workload",
+            "y",
+        ])
+        .find_map(|key| value.get(key).and_then(json_number_from_value))
+        .or_else(|| {
+            value.as_object().and_then(|map| {
+                map.iter()
+                    .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "request_id")
+                    .find_map(|(_, entry)| json_number_from_value(entry))
+            })
+        })
+}
+
+fn chart_item_from_value(
+    value: &serde_json::Value,
+    index: usize,
+    x_key: &str,
+    y_key: &str,
+) -> Option<crate::models::ChartItem> {
+    Some(crate::models::ChartItem {
+        name: chart_item_label(value, index, x_key),
+        value: Some(chart_item_value(value, y_key)?),
+    })
+}
+
+fn chart_object_key_value_items(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> Option<Vec<crate::models::ChartItem>> {
+    let entries = map
+        .iter()
+        .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "request_id")
+        .collect::<Vec<_>>();
+
+    if entries.is_empty()
+        || !entries
+            .iter()
+            .all(|(_, value)| json_number_from_value(value).is_some())
+    {
+        return None;
+    }
+
+    Some(
+        entries
+            .into_iter()
+            .map(|(key, value)| crate::models::ChartItem {
+                name: Some(key.clone()),
+                value: json_number_from_value(value),
+            })
+            .collect(),
+    )
+}
+
+fn chart_items_from_json(
+    value: &serde_json::Value,
+    x_key: &str,
+    y_key: &str,
+) -> Vec<crate::models::ChartItem> {
+    if let Some(text) = value.as_str() {
+        return serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .map(|parsed| chart_items_from_json(&parsed, x_key, y_key))
+            .unwrap_or_default();
+    }
+
+    match value {
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                return Vec::new();
+            }
+
+            if let Some(map) = items.first().and_then(|item| item.as_object()) {
+                if items.len() == 1 {
+                    if let Some(parsed) = chart_object_key_value_items(map) {
+                        return parsed;
+                    }
+                }
+
+                let keys = map
+                    .keys()
+                    .filter(|key| key.as_str() != "id")
+                    .collect::<Vec<_>>();
+                let has_standard_keys = keys.iter().any(|key| {
+                    key.as_str() == x_key
+                        || key.as_str() == "label"
+                        || key.as_str() == "name"
+                        || key.as_str() == y_key
+                        || key.as_str() == "value"
+                });
+
+                if !has_standard_keys {
+                    let expanded = items
+                        .iter()
+                        .filter_map(|item| item.as_object())
+                        .flat_map(|map| {
+                            map.iter()
+                                .filter(|(key, _)| {
+                                    key.as_str() != "id" && key.as_str() != "request_id"
+                                })
+                                .map(|(key, value)| crate::models::ChartItem {
+                                    name: Some(key.clone()),
+                                    value: Some(json_number_from_value(value).unwrap_or(0.0)),
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>();
+
+                    if !expanded.is_empty() {
+                        return expanded;
+                    }
+                }
+            }
+
+            items
+                .iter()
+                .filter(|item| item.is_object())
+                .enumerate()
+                .filter_map(|(index, item)| chart_item_from_value(item, index, x_key, y_key))
+                .collect()
+        }
+        serde_json::Value::Object(map) => {
+            let keys = map.keys().collect::<Vec<_>>();
+            if keys.len() == 1 || (keys.len() == 2 && map.contains_key("request_id")) {
+                if let Some(data_key) = keys.into_iter().find(|key| key.as_str() != "request_id") {
+                    if let Some(entry) = map.get(data_key) {
+                        if entry.is_array() || entry.is_object() {
+                            let parsed = chart_items_from_json(entry, x_key, y_key);
+                            if !parsed.is_empty() {
+                                return parsed;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(parsed) = chart_object_key_value_items(map) {
+                return parsed;
+            }
+
+            if let Some(item) = chart_item_from_value(value, 0, x_key, y_key) {
+                return vec![item];
+            }
+
+            for key in [
+                "data",
+                "items",
+                "results",
+                "result",
+                "chartData",
+                "chart_data",
+                "output",
+            ] {
+                if let Some(items) = map.get(key).and_then(|entry| entry.as_array()) {
+                    let parsed = chart_items_from_json(
+                        &serde_json::Value::Array(items.clone()),
+                        x_key,
+                        y_key,
+                    );
+                    if !parsed.is_empty() {
+                        return parsed;
+                    }
+                }
+            }
+
+            Vec::new()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn default_chart_data() -> Vec<crate::models::ChartItem> {
+    vec![
+        crate::models::ChartItem {
+            name: Some("Jan".to_string()),
+            value: Some(40.0),
+        },
+        crate::models::ChartItem {
+            name: Some("Feb".to_string()),
+            value: Some(60.0),
+        },
+        crate::models::ChartItem {
+            name: Some("Mar".to_string()),
+            value: Some(55.0),
+        },
+        crate::models::ChartItem {
+            name: Some("Apr".to_string()),
+            value: Some(80.0),
+        },
+    ]
+}
+
+fn chart_data_for_node(
+    node: &ComponentNode,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> Vec<crate::models::ChartItem> {
+    let x_key = chart_x_key(node);
+    let y_key = chart_y_key(node);
+    let data_source_mode = chart_data_source_mode(node);
+
+    if data_source_mode == "bind" || node.props.bind.is_some() {
+        if let Some(value) = resolve_node_bind_value(node, local_item, global_data) {
+            let parsed = chart_items_from_json(&value, &x_key, &y_key);
+            if !parsed.is_empty() {
+                return parsed;
+            }
+        }
+    }
+
+    if data_source_mode == "api" {
+        let target_path = get_actual_data_path(&chart_target_key(node));
+        if let Some(mut value) = resolve_json_value_path(global_data, &target_path) {
+            if let Some(response_path) = chart_response_path(node) {
+                if let Some(extracted) = resolve_json_value_path(&value, &response_path) {
+                    value = extracted;
+                }
+            } else {
+                for candidate_path in ["data", "items", "response.items", "data.items"] {
+                    if let Some(candidate) = resolve_json_value_path(&value, candidate_path) {
+                        if candidate.is_array() {
+                            value = candidate;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let parsed = chart_items_from_json(&value, &x_key, &y_key);
+            if !parsed.is_empty() {
+                return parsed;
+            }
+        }
+    }
+
+    if let Some(path) = chart_data_source_path(node) {
+        let actual_path = get_actual_data_path(&path);
+        if let Some(value) = resolve_json_value_path(global_data, &actual_path) {
+            let parsed = chart_items_from_json(&value, &x_key, &y_key);
+            if !parsed.is_empty() {
+                return parsed;
+            }
+        }
+    }
+
+    if let Some(value) = node.props.data.as_ref() {
+        let parsed = chart_items_from_json(value, &x_key, &y_key);
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+
+    default_chart_data()
 }
 
 fn dropdown_value_to_string(value: &serde_json::Value) -> Option<String> {
@@ -1172,6 +2566,30 @@ fn resolve_node_bind_value(
     Some(resolve_json_templates(&wrapped, local_item, global_data))
 }
 
+fn text_content_for_node(
+    node: &ComponentNode,
+    local_item: Option<&serde_json::Value>,
+    global_data: &serde_json::Value,
+) -> String {
+    if let Some(bind_expr) = node
+        .props
+        .bind
+        .as_deref()
+        .and_then(normalized_bind_expression)
+    {
+        let wrapped = format!("{{{{{}}}}}", bind_expr);
+        return resolve_string_templates(&wrapped, local_item, global_data);
+    }
+
+    let raw_content = node
+        .props
+        .content
+        .as_deref()
+        .or(node.props.text.as_deref())
+        .unwrap_or_default();
+    resolve_string_templates(raw_content, local_item, global_data)
+}
+
 fn set_bind_path_value(bind: &str, root: &mut serde_json::Value, value: serde_json::Value) {
     let Some(expr) = normalized_bind_expression(bind) else {
         return;
@@ -1320,12 +2738,22 @@ pub fn ComponentRenderer(props: ComponentRendererProps) -> Element {
     let local_item = local_item_signal.read().clone();
     let parent_is_flow = use_context::<ParentLayoutContext>().0;
 
-    let child_is_flow = if node.id == "root" {
-        node.layout_mode != crate::models::LayoutMode::Absolute
-    } else {
-        true
-    };
+    let child_is_flow = children_should_use_flow_context(&node);
     use_context_provider(|| ParentLayoutContext(child_is_flow));
+
+    let mount_on_load_actions = component_mount_on_load_actions(&node);
+    let mount_item = local_item.clone();
+    use_effect(move || {
+        let actions = mount_on_load_actions.clone();
+        let item = mount_item.clone();
+        if actions.is_empty() {
+            return;
+        }
+
+        spawn(async move {
+            execute_actions(actions, data_state, item).await;
+        });
+    });
     // ---- END UNCONDITIONAL HOOKS ----
 
     // Now safe to do conditional logic
@@ -1368,86 +2796,15 @@ pub fn ComponentRenderer(props: ComponentRendererProps) -> Element {
         )));
 
         if let Some(items) = items_opt {
-            let columns = node
-                .props
-                .extra
-                .get("repeaterColumns")
-                .and_then(|v| {
-                    v.as_u64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
-                })
-                .unwrap_or(1) as usize;
-
-            let gap = node
-                .props
-                .extra
-                .get("repeaterGap")
-                .and_then(|v| v.as_str())
-                .unwrap_or("12px");
-
-            let mut container_styles = String::new();
-
             let active_bp = props
                 .active_breakpoint
                 .clone()
                 .unwrap_or_else(|| "desktop".to_string());
-            let active_placement = match active_bp.as_str() {
-                "tablet" => node
-                    .placement_tablet
-                    .clone()
-                    .or_else(|| node.placement.clone()),
-                "mobile" => node
-                    .placement_mobile
-                    .clone()
-                    .or_else(|| node.placement_tablet.clone())
-                    .or_else(|| node.placement.clone()),
-                _ => node
-                    .placement_desktop
-                    .clone()
-                    .or_else(|| node.placement.clone()),
-            };
-
-            if let Some(ref p) = active_placement {
-                container_styles.push_str("position: absolute;");
-                if let Some(ref t) = p.top {
-                    container_styles.push_str(&format!("top: {};", t));
-                }
-                if let Some(ref l) = p.left {
-                    container_styles.push_str(&format!("left: {};", l));
-                }
-            }
-
-            if let Some(ref style_map) = node.props.style {
-                if let Some(w) = style_map.get("width") {
-                    container_styles.push_str(&format!("width: {};", w));
-                }
-                if let Some(h) = style_map.get("height") {
-                    container_styles.push_str(&format!("height: {};", h));
-                }
-                if let Some(mh) = style_map.get("minHeight") {
-                    container_styles.push_str(&format!("min-height: {};", mh));
-                }
-                if let Some(pos) = style_map.get("position") {
-                    if pos == "absolute" && active_placement.is_none() {
-                        container_styles.push_str("position: absolute;");
-                    }
-                }
-                if let Some(top) = style_map.get("top") {
-                    if active_placement.is_none() {
-                        container_styles.push_str(&format!("top: {};", top));
-                    }
-                }
-                if let Some(left) = style_map.get("left") {
-                    if active_placement.is_none() {
-                        container_styles.push_str(&format!("left: {};", left));
-                    }
-                }
-            }
-
-            container_styles.push_str(&format!(
-                "display: grid; grid-template-columns: repeat({}, 1fr); gap: {}; overflow-y: auto; box-sizing: border-box;",
-                columns, gap
-            ));
+            let container_styles = repeater_container_styles(
+                &node,
+                &active_bp,
+                parent_is_flow || props.is_flow_context,
+            );
 
             return rsx! {
                 div {
@@ -1521,6 +2878,74 @@ fn RepeaterItemWrapper(
     }
 }
 
+#[derive(Props, Clone, PartialEq)]
+struct ChildLayoutGroupRendererProps {
+    group: ChildLayoutGroup,
+    #[props(default)]
+    selected_id: Option<Signal<Option<String>>>,
+    #[props(default)]
+    on_select: Option<EventHandler<String>>,
+    #[props(default)]
+    on_drop: Option<EventHandler<(String, f64, f64)>>,
+    #[props(default)]
+    on_delete: Option<EventHandler<String>>,
+    #[props(default)]
+    on_resize_start: Option<EventHandler<(String, String, f64, f64)>>,
+    #[props(default)]
+    on_drag_start: Option<EventHandler<(String, f64, f64)>>,
+    #[props(default)]
+    active_breakpoint: Option<String>,
+}
+
+#[component]
+fn ChildLayoutGroupRenderer(props: ChildLayoutGroupRendererProps) -> Element {
+    match props.group {
+        ChildLayoutGroup::Single(child) => rsx! {
+            ComponentRenderer {
+                node: child,
+                selected_id: props.selected_id,
+                on_select: props.on_select,
+                on_drop: props.on_drop,
+                on_delete: props.on_delete,
+                on_resize_start: props.on_resize_start,
+                on_drag_start: props.on_drag_start,
+                active_breakpoint: props.active_breakpoint
+            }
+        },
+        ChildLayoutGroup::DynamicBadgeRow {
+            text,
+            badge,
+            wrapper_style,
+        } => rsx! {
+            div {
+                style: "{wrapper_style}",
+                ComponentRenderer {
+                    node: text,
+                    selected_id: props.selected_id,
+                    on_select: props.on_select,
+                    on_drop: props.on_drop,
+                    on_delete: props.on_delete,
+                    on_resize_start: props.on_resize_start,
+                    on_drag_start: props.on_drag_start,
+                    active_breakpoint: props.active_breakpoint.clone(),
+                    is_flow_context: true
+                }
+                ComponentRenderer {
+                    node: badge,
+                    selected_id: props.selected_id,
+                    on_select: props.on_select,
+                    on_drop: props.on_drop,
+                    on_delete: props.on_delete,
+                    on_resize_start: props.on_resize_start,
+                    on_drag_start: props.on_drag_start,
+                    active_breakpoint: props.active_breakpoint,
+                    is_flow_context: true
+                }
+            }
+        },
+    }
+}
+
 #[component]
 #[allow(unused_variables)]
 pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
@@ -1580,9 +3005,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 map.insert("width".to_string(), "100%".to_string());
             }
             if let Some(mb) = max_bottom {
-                let resolved = resolve_min_height(Some(style_map), mb);
-                map.insert("minHeight".to_string(), resolved);
-                map.remove("height");
+                apply_freeform_min_height(&mut map, style_map, mb, false);
             }
             strip_guide_borders(&mut map, &node.component_type);
             crate::models::NodeProps {
@@ -1607,9 +3030,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
         if let Some(ref style_map) = node.props.style {
             let mut map = style_map.clone();
             if let Some(mb) = max_bottom {
-                let resolved = resolve_min_height(Some(style_map), mb);
-                map.insert("minHeight".to_string(), resolved);
-                map.remove("height");
+                apply_freeform_min_height(&mut map, style_map, mb, true);
             }
             strip_guide_borders(&mut map, &node.component_type);
             crate::models::NodeProps {
@@ -1757,6 +3178,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 "display: flex; box-sizing: border-box;"
             };
             let flex_style = format!("flex-direction: {}; {} {}", dir, styles, base_style);
+            let child_groups = child_layout_groups_for_node(&node);
 
             let actions = node.on_click.clone();
             let has_actions = !actions.is_empty();
@@ -1774,9 +3196,10 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                             });
                         }
                     },
-                    for child in node.children {
-                        ComponentRenderer {
-                            node: child,
+                    for child_group in child_groups {
+                        ChildLayoutGroupRenderer {
+                            key: "{child_group.key()}",
+                            group: child_group,
                             selected_id,
                             on_select,
                             on_drop,
@@ -1798,6 +3221,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 .unwrap_or_else(|| "Card Title".to_string());
             let base_style = "position: relative; background-color: #ffffff; border-radius: var(--radius, 12px); padding: 20px; border: 1px solid rgba(0,0,0,0.08); font-family: 'Outfit', sans-serif; box-shadow: 0 4px 20px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 12px;";
             let card_style = format!("{} {}", base_style, styles);
+            let child_groups = dynamic_badge_text_child_groups(&node.children);
 
             let actions = node.on_click.clone();
             let has_actions = !actions.is_empty();
@@ -1821,9 +3245,10 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                             "{title}"
                         }
                     }
-                    for child in node.children {
-                        ComponentRenderer {
-                            node: child,
+                    for child_group in child_groups {
+                        ChildLayoutGroupRenderer {
+                            key: "{child_group.key()}",
+                            group: child_group,
                             selected_id,
                             on_select,
                             on_drop,
@@ -1864,13 +3289,7 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
             },
 
         "Text" => {
-            let content = if let Some(ref bind_expr) = node.props.bind {
-                let wrapped = format!("{{{{{}}}}}", bind_expr);
-                resolve_string_templates(&wrapped, local_item.as_ref(), &data_state.read())
-            } else {
-                let raw_content = node.props.content.clone().unwrap_or_default();
-                resolve_string_templates(&raw_content, local_item.as_ref(), &data_state.read())
-            };
+            let content = text_content_for_node(&node, local_item.as_ref(), &data_state.read());
             let variant = node
                 .props
                 .variant
@@ -2452,31 +3871,8 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                 };
             }
 
-            let chart_data: Vec<crate::models::ChartItem> = node
-                .props
-                .data
-                .clone()
-                .and_then(|d| serde_json::from_value(d).ok())
-                .unwrap_or_else(|| {
-                    vec![
-                        crate::models::ChartItem {
-                            name: Some("Jan".to_string()),
-                            value: Some(40.0),
-                        },
-                        crate::models::ChartItem {
-                            name: Some("Feb".to_string()),
-                            value: Some(60.0),
-                        },
-                        crate::models::ChartItem {
-                            name: Some("Mar".to_string()),
-                            value: Some(55.0),
-                        },
-                        crate::models::ChartItem {
-                            name: Some("Apr".to_string()),
-                            value: Some(80.0),
-                        },
-                    ]
-                });
+            let global_data = data_state.read().clone();
+            let chart_data = chart_data_for_node(&node, local_item.as_ref(), &global_data);
 
             let has_height = styles.contains("height:") || styles.contains("Height:");
             let height_style = if has_height {
@@ -3734,8 +5130,11 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                 }
                             } else {
                                 span {
-                                    style: "font-size: {logo_size}px; color: #3b82f6; display: inline-flex; align-items: center; justify-content: center;",
-                                    "{icon_label_to_glyph(&logo)}"
+                                    style: "color: #3b82f6; display: inline-flex; align-items: center; justify-content: center;",
+                                    LucideIcon {
+                                        name: logo.clone(),
+                                        size: format!("{}px", logo_size)
+                                    }
                                 }
                             }
                         }
@@ -3755,8 +5154,11 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                         }
                                     } else {
                                         span {
-                                            style: "font-size: {logo_display_size}px; color: #3b82f6; display: inline-flex; align-items: center; justify-content: center;",
-                                            "{icon_label_to_glyph(&logo)}"
+                                            style: "color: #3b82f6; display: inline-flex; align-items: center; justify-content: center;",
+                                            LucideIcon {
+                                                name: logo.clone(),
+                                                size: format!("{}px", logo_display_size)
+                                            }
                                         }
                                     }
                                 }
@@ -3824,7 +5226,10 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                     if !icon.is_empty() {
                                                         span {
                                                             style: "display: inline-flex; align-items: center; justify-content: center; margin-right: 8px;",
-                                                            "{icon_label_to_glyph(&icon)}"
+                                                            LucideIcon {
+                                                                name: icon.clone(),
+                                                                size: "1em".to_string()
+                                                            }
                                                         }
                                                     }
                                                     span { "{label}" }
@@ -3855,7 +5260,10 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                                     if !icon.is_empty() {
                                                                         span {
                                                                             style: "display: inline-flex; align-items: center; justify-content: center; margin-right: 8px;",
-                                                                            "{icon_label_to_glyph(&icon)}"
+                                                                            LucideIcon {
+                                                                                name: icon.clone(),
+                                                                                size: "1em".to_string()
+                                                                            }
                                                                         }
                                                                     }
                                                                     span { "{label}" }
@@ -3911,7 +5319,10 @@ pub fn ComponentRendererInner(props: ComponentRendererProps) -> Element {
                                                 if show_icon {
                                                     span {
                                                         style: "display: inline-flex; align-items: center; justify-content: center; margin-right: 8px;",
-                                                        "{icon_label_to_glyph(&icon)}"
+                                                        LucideIcon {
+                                                            name: icon.to_string(),
+                                                            size: "1em".to_string()
+                                                        }
                                                     }
                                                 }
                                                 if show_text {
@@ -7599,6 +9010,41 @@ mod tests {
     }
 
     #[test]
+    fn lucide_icon_names_accept_react_style_aliases() {
+        assert_eq!(
+            normalize_lucide_icon_name("CircleChevronRightIcon"),
+            "CircleChevronRight"
+        );
+        assert_eq!(normalize_lucide_icon_name("TableIcon"), "Table");
+        assert_eq!(normalize_lucide_icon_name("HexagonIcon"), "Hexagon");
+    }
+
+    #[test]
+    fn lucide_icon_registry_covers_current_package_icon_names() {
+        for name in [
+            "Activity",
+            "AlignVerticalSpaceAround",
+            "BookHeadphones",
+            "BookPlus",
+            "BookUser",
+            "Briefcase",
+            "Dock",
+            "LayoutDashboard",
+            "ListTodo",
+            "Mail",
+            "Monitor",
+            "TableIcon",
+            "Ticket",
+            "Voicemail",
+        ] {
+            let icon = lucide_icon_definition(name);
+
+            assert_eq!(icon.name, normalize_lucide_icon_name(name));
+            assert!(!icon.nodes.is_empty(), "missing svg nodes for {name}");
+        }
+    }
+
+    #[test]
     fn node_bind_display_resolves_global_values_for_non_text_components() {
         let mut node = test_node("Button", "data.profile.name");
         node.props.label = Some("Fallback label".to_string());
@@ -7640,6 +9086,267 @@ mod tests {
 
         let value = resolve_node_bind_value(&node, None, &global).expect("bound value");
         assert_eq!(value.as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn text_content_uses_template_content_when_bind_is_empty() {
+        let mut node = test_node("Text", "");
+        node.props.content = Some("Agent {{item.employee_name}}".to_string());
+        let local_item = serde_json::json!({
+            "employee_name": "Jaspreet Singh"
+        });
+
+        let content = text_content_for_node(&node, Some(&local_item), &serde_json::json!({}));
+
+        assert_eq!(content, "Agent Jaspreet Singh");
+    }
+
+    #[test]
+    fn repeater_container_uses_full_flow_width_inside_cards() {
+        let mut node = test_node("Card", "");
+        node.props.extra.insert(
+            "repeaterColumns".to_string(),
+            serde_json::Value::Number(1.into()),
+        );
+        node.props.extra.insert(
+            "repeaterGap".to_string(),
+            serde_json::Value::String("12px".to_string()),
+        );
+        node.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "1.04%".to_string()),
+            ("top".to_string(), "66px".to_string()),
+            ("width".to_string(), "95%".to_string()),
+            ("height".to_string(), "20%".to_string()),
+            ("minHeight".to_string(), "160px".to_string()),
+        ]));
+
+        let styles = repeater_container_styles(&node, "desktop", true);
+
+        assert!(styles.contains("width: 100%;"));
+        assert!(styles.contains("min-height: 160px;"));
+        assert!(!styles.contains("position: absolute;"));
+        assert!(!styles.contains("left: 1.04%;"));
+        assert!(!styles.contains("top: 66px;"));
+        assert!(!styles.contains("height: 20%;"));
+    }
+
+    #[test]
+    fn absolute_freeform_styles_keep_authored_height_when_adding_min_height() {
+        let original = std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("top".to_string(), "334px".to_string()),
+            ("left".to_string(), "0.00%".to_string()),
+            ("width".to_string(), "99%".to_string()),
+            ("height".to_string(), "35%".to_string()),
+            ("minHeight".to_string(), "35%".to_string()),
+        ]);
+        let mut output = original.clone();
+
+        apply_freeform_min_height(&mut output, &original, 324.0, true);
+
+        assert_eq!(output.get("height").map(String::as_str), Some("35%"));
+        assert_eq!(
+            output.get("minHeight").map(String::as_str),
+            Some("max(35%, 324px)")
+        );
+    }
+
+    #[test]
+    fn non_root_flex_marks_children_as_flow_context() {
+        let mut split = test_node("Flex", "");
+        split.props.direction = Some("row".to_string());
+
+        let mut agent_panel = test_node("Card", "");
+        agent_panel.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("right".to_string(), "0.00%".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("width".to_string(), "50%".to_string()),
+            ("height".to_string(), "100%".to_string()),
+        ]));
+
+        let mut chart = test_node("Chart", "");
+        chart.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "0.00%".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("width".to_string(), "50%".to_string()),
+            ("height".to_string(), "100%".to_string()),
+        ]));
+
+        split.children = vec![agent_panel, chart];
+
+        assert!(children_should_use_flow_context(&split));
+    }
+
+    #[test]
+    fn non_root_flex_child_groups_strip_absolute_placement() {
+        let mut split = test_node("Flex", "");
+        split.props.direction = Some("row".to_string());
+
+        let mut agent_panel = test_node("Card", "");
+        agent_panel.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("right".to_string(), "0.00%".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("width".to_string(), "50%".to_string()),
+            ("height".to_string(), "100%".to_string()),
+        ]));
+        agent_panel.placement = Some(crate::models::Placement {
+            left: Some("50.00%".to_string()),
+            right: Some("0.00%".to_string()),
+            top: Some("0.00%".to_string()),
+            bottom: Some("0.00%".to_string()),
+        });
+
+        let mut chart = test_node("Chart", "");
+        chart.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "0.00%".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("width".to_string(), "50%".to_string()),
+            ("height".to_string(), "100%".to_string()),
+        ]));
+        chart.placement = Some(crate::models::Placement {
+            left: Some("0.00%".to_string()),
+            right: Some("50.00%".to_string()),
+            top: Some("0.00%".to_string()),
+            bottom: Some("0.00%".to_string()),
+        });
+
+        split.children = vec![agent_panel, chart];
+
+        let groups = child_layout_groups_for_node(&split);
+
+        assert_eq!(groups.len(), 2);
+        for (index, group) in groups.into_iter().enumerate() {
+            let ChildLayoutGroup::Single(child) = group else {
+                panic!("expected single child group");
+            };
+            if index == 0 {
+                assert_eq!(child.component_type, "Chart");
+            } else {
+                assert_eq!(child.component_type, "Card");
+            }
+            let style = child.props.style.expect("child style");
+            assert_eq!(style.get("width").map(String::as_str), Some("50%"));
+            assert_eq!(style.get("height").map(String::as_str), Some("100%"));
+            assert!(!style.contains_key("position"));
+            assert!(!style.contains_key("left"));
+            assert!(!style.contains_key("right"));
+            assert!(!style.contains_key("top"));
+            assert!(child.placement.is_none());
+        }
+    }
+
+    #[test]
+    fn flex_children_without_width_keep_freeform_placement() {
+        let mut header = test_node("Flex", "");
+        header.props.direction = Some("row".to_string());
+
+        let mut title_group = test_node("Flex", "");
+        title_group.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "0.50%".to_string()),
+            ("top".to_string(), "0px".to_string()),
+            ("width".to_string(), "300px".to_string()),
+        ]));
+
+        let mut refresh = test_node("Button", "");
+        refresh.props.label = Some("Refresh".to_string());
+        refresh.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "76.65%".to_string()),
+            ("top".to_string(), "16px".to_string()),
+        ]));
+
+        let mut export = test_node("Button", "");
+        export.props.label = Some("Export".to_string());
+        export.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("left".to_string(), "87.98%".to_string()),
+            ("top".to_string(), "16px".to_string()),
+        ]));
+
+        header.children = vec![title_group, refresh, export];
+
+        let groups = child_layout_groups_for_node(&header);
+        let ChildLayoutGroup::Single(button) = &groups[1] else {
+            panic!("expected refresh button group");
+        };
+        let style = button.props.style.as_ref().expect("button style");
+
+        assert_eq!(style.get("position").map(String::as_str), Some("absolute"));
+        assert_eq!(style.get("left").map(String::as_str), Some("76.65%"));
+        assert_eq!(style.get("top").map(String::as_str), Some("16px"));
+    }
+
+    #[test]
+    fn child_layout_group_key_tracks_rendered_child_identity() {
+        let mut chart = test_node("Chart", "");
+        chart.id = "chart-left".to_string();
+        let mut card = test_node("Card", "");
+        card.id = "workload-right".to_string();
+        let group = ChildLayoutGroup::DynamicBadgeRow {
+            text: chart,
+            badge: card,
+            wrapper_style: String::new(),
+        };
+
+        assert_eq!(group.key(), "chart-left_workload-right");
+    }
+
+    #[test]
+    fn dynamic_badge_row_groups_absolute_badge_with_same_row_text() {
+        let mut badge = test_node("StatusBadge", "");
+        badge.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("top".to_string(), "179px".to_string()),
+            ("left".to_string(), "7.84%".to_string()),
+            ("width".to_string(), "10%".to_string()),
+            ("zIndex".to_string(), "10".to_string()),
+        ]));
+
+        let mut text = test_node("Text", "");
+        text.props.content = Some(
+            "{{data.ticket.functions_get_mongo_master_output_data[0].latest_status}}".to_string(),
+        );
+        text.props.style = Some(std::collections::HashMap::from([
+            ("position".to_string(), "absolute".to_string()),
+            ("top".to_string(), "182px".to_string()),
+            ("left".to_string(), "1.26%".to_string()),
+            ("fontSize".to_string(), "16px".to_string()),
+            ("zIndex".to_string(), "9".to_string()),
+        ]));
+
+        let groups = dynamic_badge_text_child_groups(&[badge, text]);
+
+        assert_eq!(groups.len(), 1);
+        match &groups[0] {
+            ChildLayoutGroup::DynamicBadgeRow {
+                text,
+                badge,
+                wrapper_style,
+            } => {
+                assert_eq!(text.component_type, "Text");
+                assert_eq!(badge.component_type, "StatusBadge");
+                assert!(wrapper_style.contains("left:1.26%;"));
+                assert!(wrapper_style.contains("top:179px;"));
+                assert!(wrapper_style.contains("display:flex;"));
+                assert!(text
+                    .props
+                    .style
+                    .as_ref()
+                    .is_some_and(|style| !style.contains_key("position")));
+                assert!(badge
+                    .props
+                    .style
+                    .as_ref()
+                    .is_some_and(|style| !style.contains_key("left")));
+            }
+            ChildLayoutGroup::Single(_) => panic!("expected grouped dynamic badge row"),
+        }
     }
 
     #[test]
@@ -7826,6 +9533,229 @@ mod tests {
         assert_eq!(actions[1]["type"], "API_CALL");
         assert_eq!(actions[1]["payload"]["url"], "/api/statuses");
         assert_eq!(actions[1]["payload"]["targetKey"], "ticketStatuses");
+    }
+
+    #[test]
+    fn component_mount_on_load_runs_general_layout_workflows() {
+        let mut node = test_node("Flex", "");
+        node.on_load = vec![serde_json::json!({
+            "type": "API_CALL",
+            "payload": {
+                "url": "/api/workload",
+                "targetKey": "workload"
+            }
+        })];
+
+        let actions = component_mount_on_load_actions(&node);
+
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["payload"]["targetKey"], "workload");
+    }
+
+    #[test]
+    fn component_mount_on_load_skips_components_with_special_loaders() {
+        let mut node = test_node("DynamicTable", "");
+        node.on_load = vec![serde_json::json!({
+            "type": "API_CALL",
+            "payload": {
+                "url": "/api/table",
+                "targetKey": "rows"
+            }
+        })];
+
+        assert!(component_mount_on_load_actions(&node).is_empty());
+    }
+
+    #[test]
+    fn chart_load_actions_use_api_config_and_chartresult_default_target() {
+        let mut node = test_node("Chart", "");
+        node.props.data_source = Some("api".to_string());
+        node.props.extra.insert(
+            "apiUrl".to_string(),
+            serde_json::Value::String("/api/workflow".to_string()),
+        );
+        node.props.method = Some("POST".to_string());
+        node.props.request_body = Some(serde_json::json!({
+            "workflow_name": "employee_graph_dashboard"
+        }));
+
+        let actions = chart_load_actions(&node);
+
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["type"], "API_CALL");
+        assert_eq!(actions[0]["payload"]["url"], "/api/workflow");
+        assert_eq!(actions[0]["payload"]["method"], "POST");
+        assert_eq!(
+            actions[0]["payload"]["body"]["workflow_name"],
+            "employee_graph_dashboard"
+        );
+        assert_eq!(actions[0]["payload"]["targetKey"], "chartresult");
+    }
+
+    #[test]
+    fn chart_load_actions_only_fetch_api_data_source() {
+        let mut node = test_node("Chart", "");
+        node.props.extra.insert(
+            "apiUrl".to_string(),
+            serde_json::Value::String("/api/workflow".to_string()),
+        );
+
+        assert!(chart_load_actions(&node).is_empty());
+
+        node.props.extra.insert(
+            "dataSource".to_string(),
+            serde_json::Value::String("api".to_string()),
+        );
+
+        assert_eq!(chart_load_actions(&node).len(), 1);
+    }
+
+    #[test]
+    fn chart_data_applies_response_path_before_normalizing() {
+        let mut node = test_node("Chart", "");
+        node.props.data_source = Some("api".to_string());
+        node.props.extra.insert(
+            "responsePath".to_string(),
+            serde_json::Value::String("payload.series".to_string()),
+        );
+        let global = serde_json::json!({
+            "chartresult": {
+                "data": [
+                    { "label": "Wrong", "value": 99 }
+                ],
+                "payload": {
+                    "series": [
+                        { "label": "Right", "value": 5 }
+                    ]
+                }
+            }
+        });
+
+        let chart_data = chart_data_for_node(&node, None, &global);
+
+        assert_eq!(
+            chart_data,
+            vec![crate::models::ChartItem {
+                name: Some("Right".to_string()),
+                value: Some(5.0)
+            }]
+        );
+    }
+
+    #[test]
+    fn chart_data_honors_custom_x_key_and_y_key() {
+        let mut node = test_node("Chart", "");
+        node.props.data_source = Some("api".to_string());
+        node.props.extra.insert(
+            "xKey".to_string(),
+            serde_json::Value::String("assignee".to_string()),
+        );
+        node.props.extra.insert(
+            "yKey".to_string(),
+            serde_json::Value::String("overdue".to_string()),
+        );
+        let global = serde_json::json!({
+            "chartresult": [
+                { "assignee": "Asha", "overdue": 2 },
+                { "assignee": "Dev", "overdue": 4 }
+            ]
+        });
+
+        let chart_data = chart_data_for_node(&node, None, &global);
+
+        assert_eq!(
+            chart_data,
+            vec![
+                crate::models::ChartItem {
+                    name: Some("Asha".to_string()),
+                    value: Some(2.0)
+                },
+                crate::models::ChartItem {
+                    name: Some("Dev".to_string()),
+                    value: Some(4.0)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn chart_data_normalizes_single_object_key_value_workflow_output() {
+        let mut node = test_node("Chart", "");
+        node.props.data_source = Some("api".to_string());
+        let global = serde_json::json!({
+            "chartresult": {
+                "functions_count_ticket_types_output_ticket_type_count": [
+                    {
+                        "policy_renewal": 1,
+                        "endorsement": 2,
+                        "grievance": "3"
+                    }
+                ],
+                "request_id": "838d4c19-8e7a-4e4d-884b-f93f09a8c76e"
+            }
+        });
+
+        let chart_data = chart_data_for_node(&node, None, &global);
+
+        assert_eq!(
+            chart_data,
+            vec![
+                crate::models::ChartItem {
+                    name: Some("policy_renewal".to_string()),
+                    value: Some(1.0)
+                },
+                crate::models::ChartItem {
+                    name: Some("endorsement".to_string()),
+                    value: Some(2.0)
+                },
+                crate::models::ChartItem {
+                    name: Some("grievance".to_string()),
+                    value: Some(3.0)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn chart_data_prefers_workflow_result_over_design_time_placeholder() {
+        let mut node = test_node("Chart", "");
+        node.props.data_source = Some("api".to_string());
+        node.props.extra.insert(
+            "xKey".to_string(),
+            serde_json::Value::String("employee_name".to_string()),
+        );
+        node.props.extra.insert(
+            "yKey".to_string(),
+            serde_json::Value::String("open".to_string()),
+        );
+        node.props.data = Some(serde_json::json!([
+            { "name": "Jan", "value": 40 },
+            { "name": "Feb", "value": 60 }
+        ]));
+        let global = serde_json::json!({
+            "chartresult": {
+                "functions_employee_graph_dashboard_output": [
+                    { "employee_name": "Asha", "open": 7 },
+                    { "employee_name": "Dev", "open": 3 }
+                ]
+            }
+        });
+
+        let chart_data = chart_data_for_node(&node, None, &global);
+
+        assert_eq!(
+            chart_data,
+            vec![
+                crate::models::ChartItem {
+                    name: Some("Asha".to_string()),
+                    value: Some(7.0)
+                },
+                crate::models::ChartItem {
+                    name: Some("Dev".to_string()),
+                    value: Some(3.0)
+                },
+            ]
+        );
     }
 
     #[test]
